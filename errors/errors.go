@@ -8,12 +8,13 @@ import (
 
 const stackDepth = 32
 
-// New returns an error with the supplied message.
-// New also records the stack trace at the point it was called.
+// New returns an error that formats as the given text.
 func New(message string) error {
 	return WithStackSkip(stderrors.New(message), 1)
 }
 
+// Errorf formats according to a format specifier and returns the string as a
+// value that satisfies error.
 func Errorf(format string, args ...interface{}) error {
 	return WithStackSkip(fmt.Errorf(format, args...), 1)
 }
@@ -25,8 +26,8 @@ func WithStack(err error) error {
 		return nil
 	}
 	return &withStack{
-		err,
-		callers(1, stackDepth),
+		error: err,
+		stack: callers(1, stackDepth),
 	}
 }
 
@@ -38,8 +39,8 @@ func WithStackSkip(err error, skip int) error {
 		return nil
 	}
 	return &withStack{
-		err,
-		callers(skip+1, stackDepth),
+		error: err,
+		stack: callers(skip+1, stackDepth),
 	}
 }
 

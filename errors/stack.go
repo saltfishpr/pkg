@@ -30,7 +30,7 @@ func callers(skip int, depth int) *stack {
 		skip = 0
 	}
 	if depth <= 0 {
-		depth = 32
+		depth = stackDepth
 	}
 	pcs := make([]uintptr, depth)
 	n := runtime.Callers(skip+2, pcs)
