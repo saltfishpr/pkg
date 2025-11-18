@@ -32,10 +32,10 @@
 //
 // # 高级特性
 //
-//   - 拦截器：使用 WithNodeFuncInterceptor() 为节点执行添加日志、监控等功能。
 //   - 子图：通过 AddSubGraph() 支持 DAG 的嵌套和模块化。
 //   - 并发执行：所有无依赖关系的节点会自动并发执行。
 //   - Mermaid 图形化：调用 ToMermaid() 生成 Mermaid 格式的 DAG 图表。
+//   - 拦截器：使用 WithNodeFuncInterceptor() 为节点执行添加日志、监控等功能。
 package dag
 
 import (
@@ -303,7 +303,7 @@ func (d *DAG) Instantiate(result any, opts ...InstantiateOption) (*DAGInstance, 
 		}
 		node.pending.Store(int32(len(spec.Deps())))
 
-		run := d.createNodeRunFunc(spec, results, node)
+		run := d.createNodeRunFunc(spec, results, opts, node)
 		for i := len(options.interceptors) - 1; i >= 0; i-- {
 			run = options.interceptors[i](run)
 		}
@@ -326,7 +326,7 @@ func (d *DAG) Instantiate(result any, opts ...InstantiateOption) (*DAGInstance, 
 	}, nil
 }
 
-func (d *DAG) createNodeRunFunc(spec Node, results map[NodeID]any, node *NodeInstance) NodeFunc {
+func (d *DAG) createNodeRunFunc(spec Node, results map[NodeID]any, opts []InstantiateOption, node *NodeInstance) NodeFunc {
 	result, ok := results[spec.ID()]
 	if ok {
 		// 节点已经有值，直接返回
@@ -344,7 +344,7 @@ func (d *DAG) createNodeRunFunc(spec Node, results map[NodeID]any, node *NodeIns
 			if n.inputMapping != nil {
 				input = n.inputMapping(deps)
 			}
-			instance, err := n.subDag.Instantiate(input)
+			instance, err := n.subDag.Instantiate(input, opts...)
 			if err != nil {
 				return nil, fmt.Errorf("instantiate sub DAG failed: %w", err)
 			}
