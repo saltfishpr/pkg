@@ -311,3 +311,57 @@ func ExampleDAGInstance_ToMermaid() {
 	// 	A --> C
 	// 	B --> C
 }
+
+// ExampleNodeFuncInterceptor_multiple 演示如何使用多个拦截器链式调用
+func ExampleNodeFuncInterceptor_multiple() {
+	d := dag.NewDAG("data")
+
+	_ = d.AddNode("process", []dag.NodeID{"data"}, func(ctx context.Context, deps map[dag.NodeID]any) (any, error) {
+		value := deps["data"].(int)
+		return value * 2, nil
+	})
+
+	if err := d.Freeze(); err != nil {
+		log.Fatal(err)
+	}
+
+	// 第一个拦截器：记录输入
+	inputLogger := func(next dag.NodeFunc) dag.NodeFunc {
+		return func(ctx context.Context, deps map[dag.NodeID]any) (any, error) {
+			fmt.Printf("Input: %v\n", deps)
+			return next(ctx, deps)
+		}
+	}
+
+	// 第二个拦截器：记录输出
+	outputLogger := func(next dag.NodeFunc) dag.NodeFunc {
+		return func(ctx context.Context, deps map[dag.NodeID]any) (any, error) {
+			result, err := next(ctx, deps)
+			fmt.Printf("Output: %v, Error: %v\n", result, err)
+			return result, err
+		}
+	}
+
+	// 使用多个拦截器
+	instance, err := d.Instantiate(5,
+		dag.WithNodeFuncInterceptor(inputLogger),
+		dag.WithNodeFuncInterceptor(outputLogger),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	results, err := instance.Run(context.Background())
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("Process result: %d\n", results["process"].(int))
+
+	// Output:
+	// Input: map[]
+	// Output: 5, Error: <nil>
+	// Input: map[data:5]
+	// Output: 10, Error: <nil>
+	// Process result: 10
+}

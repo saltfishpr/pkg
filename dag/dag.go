@@ -1,3 +1,41 @@
+// Package dag 提供了一个有向无环图（DAG）的实现，支持节点的并发执行、子图嵌套和自定义拦截器。
+//
+// # 使用流程
+//
+//  1. 创建 DAG：使用 NewDAG() 创建一个新的 DAG，指定入口节点 ID
+//  2. 添加节点：使用 AddNode() 或 AddSubGraph() 添加节点
+//  3. 冻结 DAG：调用 Freeze() 进行验证（检查完整性和循环）
+//  4. 创建实例：使用 Instantiate() 为 DAG 创建可执行实例
+//  5. 运行实例：调用 Run() 或 RunAsync() 执行 DAG
+//
+// # 示例
+//
+//	dag := dag.NewDAG("entry")
+//	dag.AddNode("node1", []dag.NodeID{"entry"}, func(ctx context.Context, deps map[dag.NodeID]any) (any, error) {
+//		return "result1", nil
+//	})
+//	dag.AddNode("node2", []dag.NodeID{"node1"}, func(ctx context.Context, deps map[dag.NodeID]any) (any, error) {
+//		return "result2", nil
+//	})
+//	if err := dag.Freeze(); err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	instance, err := dag.Instantiate("entry_value")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	results, err := instance.Run(context.Background())
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+// # 高级特性
+//
+//   - 拦截器：使用 WithNodeFuncInterceptor() 为节点执行添加日志、监控等功能。
+//   - 子图：通过 AddSubGraph() 支持 DAG 的嵌套和模块化。
+//   - 并发执行：所有无依赖关系的节点会自动并发执行。
+//   - Mermaid 图形化：调用 ToMermaid() 生成 Mermaid 格式的 DAG 图表。
 package dag
 
 import (
@@ -32,6 +70,8 @@ const (
 type NodeID string
 
 type NodeFunc func(ctx context.Context, deps map[NodeID]any) (any, error)
+
+type NodeFuncInterceptor func(next NodeFunc) NodeFunc
 
 type Node interface {
 	Type() NodeType
@@ -199,7 +239,10 @@ func (d *DAG) checkCycle() error {
 }
 
 type InstantiateOptions struct {
+	// executor 用于执行 DAG 实例中的节点
 	executor future.Executor
+	// interceptors 用来包装节点的执行函数，可以用于日志、监控等场景
+	interceptors []NodeFuncInterceptor
 }
 
 type InstantiateOption func(*InstantiateOptions)
@@ -210,7 +253,19 @@ func WithExecutor(executor future.Executor) InstantiateOption {
 	}
 }
 
-func (d *DAG) Instantiate(input any, opts ...InstantiateOption) (*DAGInstance, error) {
+func WithNodeFuncInterceptor(interceptor NodeFuncInterceptor) InstantiateOption {
+	return func(opts *InstantiateOptions) {
+		opts.interceptors = append(opts.interceptors, interceptor)
+	}
+}
+
+// Instantiate 创建 DAG 的一个实例。
+// result 参数用于指定节点的输出值，可以是以下两种形式之一：
+//  1. any：将该值作为 entry 节点的输出值。
+//  2. map[NodeID]any：指定各节点的输出值。
+//     如果节点指定了输出值，则在执行时会直接使用该值，跳过节点的执行逻辑。
+//     如果 entry 节点没有指定输出值，则会将整个 result 作为 entry 节点的输出值。
+func (d *DAG) Instantiate(result any, opts ...InstantiateOption) (*DAGInstance, error) {
 	if !d.frozen {
 		return nil, ErrDAGNotFrozen
 	}
@@ -220,6 +275,18 @@ func (d *DAG) Instantiate(input any, opts ...InstantiateOption) (*DAGInstance, e
 	}
 	for _, opt := range opts {
 		opt(options)
+	}
+
+	// 如果 result 是 map[NodeID]any，则作为各节点的输出
+	results, ok := result.(map[NodeID]any)
+	if !ok {
+		// 否则将 result 作为 entry 节点的输出
+		results = make(map[NodeID]any)
+		results[d.entry] = result
+	}
+	if _, ok := results[d.entry]; !ok {
+		// 如果 entry 节点没有值，则将整个 result 作为 entry 节点的输出
+		results[d.entry] = result
 	}
 
 	nodes := make(map[NodeID]*NodeInstance)
@@ -235,36 +302,12 @@ func (d *DAG) Instantiate(input any, opts ...InstantiateOption) (*DAGInstance, e
 			result:  promise.Future(),
 		}
 		node.pending.Store(int32(len(spec.Deps())))
-		switch spec.Type() {
-		case NodeTypeEntry:
-			node.run = func(_ context.Context, _ map[NodeID]any) (any, error) { return input, nil }
-		case NodeTypeSimple:
-			n := spec.(*SimpleNode)
-			node.run = n.run
-		case NodeTypeSubDAG:
-			n := spec.(*SubDAGNode)
-			node.run = func(ctx context.Context, deps map[NodeID]any) (any, error) {
-				var input any = deps
-				if n.inputMapping != nil {
-					input = n.inputMapping(deps)
-				}
-				instance, err := n.subDag.Instantiate(input)
-				if err != nil {
-					return nil, fmt.Errorf("instantiate sub DAG failed: %w", err)
-				}
-				results, err := instance.Run(ctx)
-				if err != nil {
-					return nil, fmt.Errorf("run sub DAG failed: %w", err)
-				}
-				node.subDagInstance = instance
-				node.subDagResult = results
-				var output any = results
-				if n.outputMapping != nil {
-					output = n.outputMapping(results)
-				}
-				return output, nil
-			}
+
+		run := d.createNodeRunFunc(spec, results, node)
+		for i := len(options.interceptors) - 1; i >= 0; i-- {
+			run = options.interceptors[i](run)
 		}
+		node.run = run
 
 		nodes[id] = node
 		for _, dep := range spec.Deps() {
@@ -283,6 +326,45 @@ func (d *DAG) Instantiate(input any, opts ...InstantiateOption) (*DAGInstance, e
 	}, nil
 }
 
+func (d *DAG) createNodeRunFunc(spec Node, results map[NodeID]any, node *NodeInstance) NodeFunc {
+	result, ok := results[spec.ID()]
+	if ok {
+		// 节点已经有值，直接返回
+		return func(_ context.Context, _ map[NodeID]any) (any, error) { return result, nil }
+	}
+
+	switch spec.Type() {
+	case NodeTypeSimple:
+		n := spec.(*SimpleNode)
+		return n.run
+	case NodeTypeSubDAG:
+		n := spec.(*SubDAGNode)
+		return func(ctx context.Context, deps map[NodeID]any) (any, error) {
+			var input any = deps
+			if n.inputMapping != nil {
+				input = n.inputMapping(deps)
+			}
+			instance, err := n.subDag.Instantiate(input)
+			if err != nil {
+				return nil, fmt.Errorf("instantiate sub DAG failed: %w", err)
+			}
+			results, err := instance.Run(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("run sub DAG failed: %w", err)
+			}
+			node.subDagInstance = instance
+			node.subDagResults = results
+			var output any = results
+			if n.outputMapping != nil {
+				output = n.outputMapping(results)
+			}
+			return output, nil
+		}
+	default:
+		panic("should not happen")
+	}
+}
+
 type NodeInstance struct {
 	spec Node
 
@@ -293,7 +375,7 @@ type NodeInstance struct {
 	result   *future.Future[any]
 
 	subDagInstance *DAGInstance
-	subDagResult   map[NodeID]any
+	subDagResults  map[NodeID]any
 
 	startTime time.Time
 	endTime   time.Time
