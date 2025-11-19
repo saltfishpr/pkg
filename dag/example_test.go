@@ -233,6 +233,42 @@ func ExampleDAG_subDAG() {
 	// Final result: 115
 }
 
+// ExampleDAG_ToMermaid 演示如何生成 Mermaid 图表
+func ExampleDAG_ToMermaid() {
+	d := dag.NewDAG("start")
+
+	_ = d.AddNode("A", []dag.NodeID{"start"}, func(ctx context.Context, deps map[dag.NodeID]any) (any, error) {
+		return nil, nil
+	})
+
+	_ = d.AddNode("B", []dag.NodeID{"start"}, func(ctx context.Context, deps map[dag.NodeID]any) (any, error) {
+		return nil, nil
+	})
+
+	_ = d.AddNode("C", []dag.NodeID{"A", "B"}, func(ctx context.Context, deps map[dag.NodeID]any) (any, error) {
+		return nil, nil
+	})
+
+	if err := d.Freeze(); err != nil {
+		log.Fatal(err)
+	}
+
+	// 生成 Mermaid 图表
+	mermaid := d.ToMermaid()
+	fmt.Println(mermaid)
+
+	// Output:
+	// graph LR
+	// 	A(("A"))
+	// 	B(("B"))
+	// 	C(("C"))
+	// 	start["start"]
+	// 	start --> A
+	// 	start --> B
+	// 	A --> C
+	// 	B --> C
+}
+
 // ExampleDAGInstance_RunAsync 演示如何异步运行 DAG
 func ExampleDAGInstance_RunAsync() {
 	d := dag.NewDAG("input")
@@ -269,47 +305,6 @@ func ExampleDAGInstance_RunAsync() {
 
 	// Output:
 	// Result: 25
-}
-
-// ExampleDAGInstance_ToMermaid 演示如何生成 Mermaid 图表
-func ExampleDAGInstance_ToMermaid() {
-	d := dag.NewDAG("start")
-
-	_ = d.AddNode("A", []dag.NodeID{"start"}, func(ctx context.Context, deps map[dag.NodeID]any) (any, error) {
-		return nil, nil
-	})
-
-	_ = d.AddNode("B", []dag.NodeID{"start"}, func(ctx context.Context, deps map[dag.NodeID]any) (any, error) {
-		return nil, nil
-	})
-
-	_ = d.AddNode("C", []dag.NodeID{"A", "B"}, func(ctx context.Context, deps map[dag.NodeID]any) (any, error) {
-		return nil, nil
-	})
-
-	if err := d.Freeze(); err != nil {
-		log.Fatal(err)
-	}
-
-	instance, err := d.Instantiate(nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// 生成 Mermaid 图表
-	mermaid := instance.ToMermaid()
-	fmt.Println(mermaid)
-
-	// Output:
-	// graph LR
-	// 	A(("A"))
-	// 	B(("B"))
-	// 	C(("C"))
-	// 	start["start"]
-	// 	start --> A
-	// 	start --> B
-	// 	A --> C
-	// 	B --> C
 }
 
 // ExampleNodeFuncInterceptor_multiple 演示如何使用多个拦截器链式调用

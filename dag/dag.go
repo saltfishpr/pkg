@@ -57,6 +57,8 @@ var (
 	ErrDAGNotFrozen  = errors.New("DAG is not frozen")
 	ErrDAGIncomplete = errors.New("DAG is incomplete")
 	ErrDAGCyclic     = errors.New("DAG has cycle")
+	// ErrNodeSkipped 表示节点执行被跳过。
+	ErrNodeSkipped = errors.New("DAG node is skipped")
 )
 
 type NodeType int
@@ -238,6 +240,50 @@ func (d *DAG) checkCycle() error {
 	return nil
 }
 
+func (d *DAG) ToMermaid() string {
+	if !d.frozen {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("graph LR\n")
+	d.toMermaid(&b, "", "\t")
+	return b.String()
+}
+
+func (d *DAG) toMermaid(b *strings.Builder, prefix string, indent string) {
+	ids := make([]string, 0, len(d.nodes))
+	for id := range d.nodes {
+		ids = append(ids, string(id))
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		node := d.nodes[NodeID(id)]
+		label := prefix + id
+
+		switch node.Type() {
+		case NodeTypeEntry:
+			_, _ = fmt.Fprintf(b, "%s%s[%q]\n", indent, label, label)
+		case NodeTypeSimple:
+			_, _ = fmt.Fprintf(b, "%s%s((%q))\n", indent, label, label)
+		case NodeTypeSubDAG:
+			n := node.(*SubDAGNode)
+			_, _ = fmt.Fprintf(b, "%ssubgraph %s [Subgraph %s]\n", indent, label, label)
+			n.subDag.toMermaid(b, label+".", indent+"\t")
+			_, _ = fmt.Fprintf(b, "%send\n", indent)
+		}
+	}
+
+	for _, id := range ids {
+		node := d.nodes[NodeID(id)]
+		srcLabel := prefix + id
+		for _, dep := range node.Deps() {
+			dstLabel := prefix + string(dep)
+			_, _ = fmt.Fprintf(b, "%s%s --> %s\n", indent, dstLabel, srcLabel)
+		}
+	}
+}
+
 type InstantiateOptions struct {
 	// executor 用于执行 DAG 实例中的节点
 	executor future.Executor
@@ -400,14 +446,14 @@ func (d *DAGInstance) RunAsync(ctx context.Context) *future.Future[map[NodeID]an
 	}
 	return future.Then(
 		future.AllOf(futures...),
-		func(_ []any, err error) (map[NodeID]any, error) {
-			if err != nil {
-				return nil, err
-			}
+		func(_ []any, _ error) (map[NodeID]any, error) {
 			results := make(map[NodeID]any)
 			for id, node := range d.nodes {
 				val, err := node.result.Get()
 				if err != nil {
+					if errors.Is(err, ErrNodeSkipped) {
+						continue
+					}
 					return nil, fmt.Errorf("node %s failed: %w", id, err)
 				}
 				results[id] = val
@@ -425,6 +471,9 @@ func (d *DAGInstance) runNode(ctx context.Context, id NodeID) {
 		for _, depid := range node.spec.Deps() {
 			v, err := d.nodes[depid].result.Get()
 			if err != nil {
+				if errors.Is(err, ErrNodeSkipped) {
+					return nil, ErrNodeSkipped
+				}
 				return nil, fmt.Errorf("dep %s failed: %w", depid, err)
 			}
 			deps[depid] = v
@@ -440,45 +489,4 @@ func (d *DAGInstance) runNode(ctx context.Context, id NodeID) {
 	}).Subscribe(func(val any, err error) {
 		node.promise.Set(val, err)
 	})
-}
-
-func (d *DAGInstance) ToMermaid() string {
-	var b strings.Builder
-	b.WriteString("graph LR\n")
-	d.toMermaid(&b, "", "\t")
-	return b.String()
-}
-
-func (d *DAGInstance) toMermaid(b *strings.Builder, prefix string, indent string) {
-	ids := make([]string, 0, len(d.nodes))
-	for id := range d.nodes {
-		ids = append(ids, string(id))
-	}
-	sort.Strings(ids)
-	for _, id := range ids {
-		node := d.nodes[NodeID(id)]
-		label := prefix + id
-
-		switch node.spec.Type() {
-		case NodeTypeEntry:
-			_, _ = fmt.Fprintf(b, "%s%s[%q]\n", indent, label, label)
-		case NodeTypeSimple:
-			_, _ = fmt.Fprintf(b, "%s%s((%q))\n", indent, label, label)
-		case NodeTypeSubDAG:
-			if node.subDagInstance != nil {
-				_, _ = fmt.Fprintf(b, "%ssubgraph %s [Subgraph %s]\n", indent, label, label)
-				node.subDagInstance.toMermaid(b, label+".", indent+"\t")
-				_, _ = fmt.Fprintf(b, "%send\n", indent)
-			}
-		}
-	}
-
-	for _, id := range ids {
-		node := d.nodes[NodeID(id)]
-		srcLabel := prefix + id
-		for _, dep := range node.spec.Deps() {
-			depLabel := prefix + string(dep)
-			_, _ = fmt.Fprintf(b, "%s%s --> %s\n", indent, depLabel, srcLabel)
-		}
-	}
 }

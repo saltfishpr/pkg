@@ -5,7 +5,13 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"go.uber.org/goleak"
 )
+
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
 
 func TestNewDAG(t *testing.T) {
 	d := NewDAG("entry")
@@ -623,12 +629,7 @@ func TestDAGInstance_ToMermaid(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 
-	inst, err := d.Instantiate(nil)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-
-	mermaid := inst.ToMermaid()
+	mermaid := d.ToMermaid()
 
 	// Check that mermaid diagram contains expected elements
 	if mermaid == "" {
@@ -679,18 +680,7 @@ func TestDAGInstance_ToMermaid_WithSubDAG(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 
-	inst, err := main.Instantiate(4)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-
-	// Run it first to populate subDAGInstance
-	_, err = inst.Run(context.Background())
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-
-	mermaid := inst.ToMermaid()
+	mermaid := main.ToMermaid()
 
 	expectedStrings := []string{
 		"graph LR",
@@ -800,6 +790,52 @@ func TestDAG_ComplexDependencies(t *testing.T) {
 
 	if results["merge"].(int) != 23 {
 		t.Errorf("expected merge result to be 23, got %v", results["merge"])
+	}
+}
+
+func TestDAG_SkipNode(t *testing.T) {
+	d := NewDAG("entry")
+
+	_ = d.AddNode("node1", []NodeID{"entry"}, func(ctx context.Context, deps map[NodeID]any) (any, error) {
+		return "result1", nil
+	})
+	_ = d.AddNode("node1-1", []NodeID{"node1"}, func(ctx context.Context, deps map[NodeID]any) (any, error) {
+		return "result1-1", nil
+	})
+
+	_ = d.AddNode("node2", []NodeID{"entry"}, func(ctx context.Context, deps map[NodeID]any) (any, error) {
+		return nil, ErrNodeSkipped
+	})
+	_ = d.AddNode("node2-1", []NodeID{"node2"}, func(ctx context.Context, deps map[NodeID]any) (any, error) {
+		return "result2-1", nil
+	})
+
+	_ = d.Freeze()
+
+	inst, err := d.Instantiate(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := inst.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if results["node1"].(string) != "result1" {
+		t.Errorf("expected node1 result to be 'result1', got %v", results["node1"])
+	}
+
+	if results["node1-1"].(string) != "result1-1" {
+		t.Errorf("expected node1-1 result to be 'result1-1', got %v", results["node1-1"])
+	}
+
+	if _, exists := results["node2"]; exists {
+		t.Errorf("expected node2 to be skipped, but got result %v", results["node2"])
+	}
+
+	if _, exists := results["node2-1"]; exists {
+		t.Errorf("expected node2-1 to be skipped, but got result %v", results["node2-1"])
 	}
 }
 
