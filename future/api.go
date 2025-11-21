@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"runtime/debug"
 	"sync/atomic"
-	"time"
 )
 
 var (
@@ -23,7 +22,7 @@ func CtxAsync[T any](ctx context.Context, f func(ctx context.Context) (T, error)
 }
 
 func Submit[T any](e Executor, f func() (T, error)) *Future[T] {
-	s := &state[T]{}
+	s := newState[T]()
 	e.Submit(func() {
 		var val T
 		var err error
@@ -39,7 +38,7 @@ func Submit[T any](e Executor, f func() (T, error)) *Future[T] {
 }
 
 func CtxSubmit[T any](ctx context.Context, e Executor, f func(ctx context.Context) (T, error)) *Future[T] {
-	s := &state[T]{}
+	s := newState[T]()
 	e.Submit(func() {
 		var val T
 		var err error
@@ -59,17 +58,13 @@ func Done[T any](val T) *Future[T] {
 }
 
 func Done2[T any](val T, err error) *Future[T] {
-	s := &state[T]{}
+	s := newState[T]()
 	s.set(val, err)
 	return &Future[T]{state: s}
 }
 
-func Await[T any](f *Future[T]) (T, error) {
-	return f.Get()
-}
-
 func Then[T any, R any](f *Future[T], cb func(T, error) (R, error)) *Future[R] {
-	s := &state[R]{}
+	s := newState[R]()
 	f.state.subscribe(func(val T, err error) {
 		rval, rerr := cb(val, err)
 		s.set(rval, rerr)
@@ -83,7 +78,7 @@ func AllOf[T any](fs ...*Future[T]) *Future[[]T] {
 	}
 
 	var done uint32
-	s := &state[[]T]{}
+	s := newState[[]T]()
 	c := int32(len(fs))
 	results := make([]T, len(fs))
 	for i, f := range fs {
@@ -102,26 +97,4 @@ func AllOf[T any](fs ...*Future[T]) *Future[[]T] {
 		})
 	}
 	return &Future[[]T]{state: s}
-}
-
-func Timeout[T any](f *Future[T], d time.Duration) *Future[T] {
-	var done uint32
-	s := &state[T]{}
-	timer := time.AfterFunc(d, func() {
-		if atomic.CompareAndSwapUint32(&done, 0, 1) {
-			var zero T
-			s.set(zero, ErrTimeout)
-		}
-	})
-	f.state.subscribe(func(val T, err error) {
-		if atomic.CompareAndSwapUint32(&done, 0, 1) {
-			s.set(val, err)
-			timer.Stop()
-		}
-	})
-	return &Future[T]{state: s}
-}
-
-func Until[T any](f *Future[T], t time.Time) *Future[T] {
-	return Timeout(f, time.Until(t))
 }

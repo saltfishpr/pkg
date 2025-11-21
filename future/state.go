@@ -1,91 +1,73 @@
 package future
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"unsafe"
 )
 
 const (
-	stateFree uint64 = iota
+	stateFree uint32 = iota
 	stateDoing
 	stateDone
 )
 
-const stateDelta = 1 << 32
-
-const (
-	maskCounter = 1<<32 - 1
-	maskState   = 1<<34 - 1
-)
-
-func isFree(st uint64) bool {
-	return ((st & maskState) >> 32) == stateFree
-}
-
-func isDone(st uint64) bool {
-	return ((st & maskState) >> 32) == stateDone
-}
-
 type state[T any] struct {
 	noCopy noCopy
 
-	state atomic.Uint64  // high 30 bits are flags, mid 2 bits are state, low 32 bits are waiter count.
-	stack unsafe.Pointer // *callback[T]
-	sema  uint32
+	state atomic.Uint32
+	done  chan struct{}
 
 	val T
 	err error
+
+	stack unsafe.Pointer // *callback[T]
 }
 
-func (s *state[T]) set(val T, err error) bool {
-	for {
-		st := s.state.Load()
-		if !isFree(st) {
-			return false
-		}
-		// state: free -> doing
-		if s.state.CompareAndSwap(st, st+stateDelta) {
-			s.val = val
-			s.err = err
-
-			// state: doing -> done
-			st = s.state.Add(stateDelta)
-			// wake up all waiters
-			for w := st & maskCounter; w > 0; w-- {
-				runtime_Semrelease(&s.sema, false, 0)
-			}
-			// execute all callbacks
-			for {
-				head := (*callback[T])(atomic.LoadPointer(&s.stack))
-				if head == nil {
-					break
-				}
-				// stack = head.next
-				if atomic.CompareAndSwapPointer(&s.stack, unsafe.Pointer(head), unsafe.Pointer(head.next)) {
-					head.execOnce(val, err)
-					head.next = nil
-				}
-			}
-			return true
-		}
+func newState[T any]() *state[T] {
+	return &state[T]{
+		done: make(chan struct{}),
 	}
 }
 
-func (s *state[T]) get() (T, error) {
+func (s *state[T]) set(val T, err error) bool {
+	if !s.state.CompareAndSwap(stateFree, stateDoing) {
+		return false
+	}
+	s.val = val
+	s.err = err
+
+	s.state.CompareAndSwap(stateDoing, stateDone)
+	close(s.done)
+
+	// execute all callbacks
 	for {
-		st := s.state.Load()
-		if isDone(st) {
-			return s.val, s.err
+		head := (*callback[T])(atomic.LoadPointer(&s.stack))
+		if head == nil {
+			break
 		}
-		// add a waiter atomically
-		if s.state.CompareAndSwap(st, st+1) {
-			runtime_Semacquire(&s.sema) // wait to be notified
-			if !isDone(s.state.Load()) {
-				panic("sync: notified before state is done")
-			}
-			return s.val, s.err
+		// stack = head.next
+		if atomic.CompareAndSwapPointer(&s.stack, unsafe.Pointer(head), unsafe.Pointer(head.next)) {
+			head.execOnce(val, err)
+			head.next = nil
 		}
+	}
+
+	return true
+}
+
+func (s *state[T]) get(ctx context.Context) (T, error) {
+	if s.isDone() {
+		return s.val, s.err
+	}
+
+	select {
+	case <-ctx.Done():
+		var value T
+		return value, ctx.Err()
+	case <-s.done:
+		return s.val, s.err
 	}
 }
 
@@ -95,7 +77,7 @@ func (s *state[T]) subscribe(cb func(T, error)) {
 	for {
 		oldCb := (*callback[T])(atomic.LoadPointer(&s.stack))
 
-		if isDone(s.state.Load()) {
+		if s.isDone() {
 			cb(s.val, s.err)
 			return
 		}
@@ -103,12 +85,20 @@ func (s *state[T]) subscribe(cb func(T, error)) {
 		newCb.next = oldCb
 		if atomic.CompareAndSwapPointer(&s.stack, unsafe.Pointer(oldCb), unsafe.Pointer(newCb)) {
 			// stack may be nil, the execution logic in set will skip, so double check here
-			if isDone(s.state.Load()) {
+			if s.isDone() {
 				newCb.execOnce(s.val, s.err)
 			}
 			return
 		}
 	}
+}
+
+func (s *state[T]) isFree() bool {
+	return s.state.Load() == stateFree
+}
+
+func (s *state[T]) isDone() bool {
+	return s.state.Load() == stateDone
 }
 
 type callback[T any] struct {

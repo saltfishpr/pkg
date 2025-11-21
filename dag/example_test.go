@@ -271,6 +271,7 @@ func ExampleDAG_ToMermaid() {
 
 // ExampleDAGInstance_RunAsync 演示如何异步运行 DAG
 func ExampleDAGInstance_RunAsync() {
+	ctx := context.Background()
 	d := dag.NewDAG("input")
 
 	_ = d.AddNode("step1", []dag.NodeID{"input"}, func(ctx context.Context, deps map[dag.NodeID]any) (any, error) {
@@ -291,12 +292,12 @@ func ExampleDAGInstance_RunAsync() {
 	}
 
 	// 异步运行 DAG
-	future := instance.RunAsync(context.Background())
+	future := instance.RunAsync(ctx)
 
 	// 可以在这里做其他事情...
 
 	// 等待结果
-	results, err := future.Get()
+	results, err := future.Get(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}

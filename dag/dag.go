@@ -435,7 +435,7 @@ type DAGInstance struct {
 }
 
 func (d *DAGInstance) Run(ctx context.Context) (map[NodeID]any, error) {
-	return d.RunAsync(ctx).Get()
+	return d.RunAsync(ctx).Get(ctx)
 }
 
 func (d *DAGInstance) RunAsync(ctx context.Context) *future.Future[map[NodeID]any] {
@@ -449,7 +449,7 @@ func (d *DAGInstance) RunAsync(ctx context.Context) *future.Future[map[NodeID]an
 		func(_ []any, _ error) (map[NodeID]any, error) {
 			results := make(map[NodeID]any)
 			for id, node := range d.nodes {
-				val, err := node.result.Get()
+				val, err := node.result.Get(ctx)
 				if err != nil {
 					if errors.Is(err, ErrNodeSkipped) {
 						continue
@@ -469,7 +469,7 @@ func (d *DAGInstance) runNode(ctx context.Context, id NodeID) {
 	future.CtxSubmit(ctx, d.executor, func(ctx context.Context) (any, error) {
 		deps := make(map[NodeID]any)
 		for _, depid := range node.spec.Deps() {
-			v, err := d.nodes[depid].result.Get()
+			v, err := d.nodes[depid].result.Get(ctx)
 			if err != nil {
 				if errors.Is(err, ErrNodeSkipped) {
 					return nil, ErrNodeSkipped

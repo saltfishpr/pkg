@@ -473,6 +473,7 @@ func TestDAGInstance_Run_ContextCancellation(t *testing.T) {
 }
 
 func TestDAGInstance_RunAsync(t *testing.T) {
+	ctx := context.Background()
 	d := NewDAG("entry")
 
 	err := d.AddNode("node1", []NodeID{"entry"}, func(ctx context.Context, deps map[NodeID]any) (any, error) {
@@ -492,8 +493,8 @@ func TestDAGInstance_RunAsync(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 
-	future := inst.RunAsync(context.Background())
-	results, err := future.Get()
+	future := inst.RunAsync(ctx)
+	results, err := future.Get(ctx)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}

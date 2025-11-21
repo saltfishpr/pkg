@@ -2,6 +2,8 @@
 // Inspired by https://github.com/jizhuozhi/go-future
 package future
 
+import "context"
+
 // Promise The Promise provides a facility to store a value or an error that is later acquired asynchronously via a Future
 // created by the Promise. Note that the Promise object is meant to be set only once.
 //
@@ -14,12 +16,14 @@ package future
 //
 // A Promise must not be copied after first use.
 type Promise[T any] struct {
-	state state[T]
+	state *state[T]
 }
 
 // NewPromise creates a new Promise object.
 func NewPromise[T any]() *Promise[T] {
-	return &Promise[T]{}
+	return &Promise[T]{
+		state: newState[T](),
+	}
 }
 
 // Set sets the value and error of the Promise.
@@ -37,12 +41,12 @@ func (p *Promise[T]) SetSafety(val T, err error) bool {
 
 // Future returns a Future object associated with the Promise.
 func (p *Promise[T]) Future() *Future[T] {
-	return &Future[T]{state: &p.state}
+	return &Future[T]{state: p.state}
 }
 
 // Free returns true if the Promise is not set.
 func (p *Promise[T]) Free() bool {
-	return isFree(p.state.state.Load())
+	return p.state.isFree()
 }
 
 // Future The Future provides a mechanism to access the result of asynchronous operations:
@@ -61,13 +65,13 @@ type Future[T any] struct {
 }
 
 // Get returns the value and error of the Future.
-func (f *Future[T]) Get() (T, error) {
-	return f.state.get()
+func (f *Future[T]) Get(ctx context.Context) (T, error) {
+	return f.state.get(ctx)
 }
 
 // GetOrDefault returns the value of the Future. If error has been set, it returns the default value.
-func (f *Future[T]) GetOrDefault(defaultVal T) T {
-	val, err := f.state.get()
+func (f *Future[T]) GetOrDefault(ctx context.Context, defaultVal T) T {
+	val, err := f.state.get(ctx)
 	if err != nil {
 		return defaultVal
 	}
@@ -84,5 +88,5 @@ func (f *Future[T]) Subscribe(cb func(val T, err error)) {
 
 // Done returns true if the Future is done.
 func (f *Future[T]) Done() bool {
-	return isDone(f.state.state.Load())
+	return f.state.isDone()
 }
