@@ -1,6 +1,6 @@
 module github.com/saltfishpr/pkg/microservice
 
-go 1.23.0
+go 1.18
 
 replace github.com/saltfishpr/pkg => ../
 

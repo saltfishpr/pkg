@@ -3,6 +3,7 @@ module github.com/saltfishpr/pkg
 go 1.18
 
 require (
+	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.8.0
 	go.uber.org/goleak v1.3.0
 )
