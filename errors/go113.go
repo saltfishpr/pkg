@@ -1,8 +1,6 @@
 package errors
 
-import (
-	stderrors "errors"
-)
+import stderrors "errors"
 
 // Is reports whether any error in err's chain matches target.
 //
