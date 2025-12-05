@@ -22,14 +22,14 @@ type BaseDaemon struct {
 
 func (d *BaseDaemon) Start() error {
 	if !d.state.CompareAndSwap(DaemonStateInitialized, DaemonStateStarted) {
-		return nil
+		return ErrDaemonStartFailed
 	}
-	return ErrDaemonStartFailed
+	return nil
 }
 
 func (d *BaseDaemon) Stop() error {
 	if !d.state.CompareAndSwap(DaemonStateStarted, DaemonStateStopped) {
-		return nil
+		return ErrDaemonStopFailed
 	}
-	return ErrDaemonStopFailed
+	return nil
 }
