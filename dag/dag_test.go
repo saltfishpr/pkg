@@ -37,7 +37,6 @@ func TestDAG_AddNode(t *testing.T) {
 	node, exists := d.nodes["node1"]
 	require.True(t, exists)
 	assert.Equal(t, NodeID("node1"), node.ID())
-	assert.Equal(t, NodeTypeSimple, node.Type())
 }
 
 func TestDAG_AddNode_Duplicate(t *testing.T) {
@@ -84,7 +83,7 @@ func TestDAG_AddSubGraph(t *testing.T) {
 
 	node, exists := d.nodes["subgraph1"]
 	require.True(t, exists)
-	assert.Equal(t, NodeTypeSubDAG, node.Type())
+	assert.Equal(t, NodeID("subgraph1"), node.ID())
 }
 
 func TestDAG_AddSubGraph_Duplicate(t *testing.T) {
@@ -489,17 +488,6 @@ func TestDAGInstance_ToMermaid_WithSubDAG(t *testing.T) {
 	for _, expected := range expectedStrings {
 		assert.Contains(t, mermaid, expected)
 	}
-}
-
-func TestNodeTypes(t *testing.T) {
-	entry := &EntryNode{}
-	assert.Equal(t, NodeTypeEntry, entry.Type())
-
-	simple := &SimpleNode{}
-	assert.Equal(t, NodeTypeSimple, simple.Type())
-
-	subdag := &SubDAGNode{}
-	assert.Equal(t, NodeTypeSubDAG, subdag.Type())
 }
 
 func TestBaseNode(t *testing.T) {

@@ -61,14 +61,6 @@ var (
 	ErrNodeSkipped = errors.New("DAG node is skipped")
 )
 
-type NodeType int
-
-const (
-	NodeTypeEntry NodeType = iota
-	NodeTypeSimple
-	NodeTypeSubDAG
-)
-
 type NodeID string
 
 type NodeFunc func(ctx context.Context, deps map[NodeID]any) (any, error)
@@ -76,7 +68,6 @@ type NodeFunc func(ctx context.Context, deps map[NodeID]any) (any, error)
 type NodeFuncInterceptor func(next NodeFunc) NodeFunc
 
 type Node interface {
-	Type() NodeType
 	ID() NodeID
 	Deps() []NodeID
 }
@@ -94,14 +85,10 @@ type EntryNode struct {
 	BaseNode
 }
 
-func (n *EntryNode) Type() NodeType { return NodeTypeEntry }
-
 type SimpleNode struct {
 	BaseNode
 	run NodeFunc
 }
-
-func (n *SimpleNode) Type() NodeType { return NodeTypeSimple }
 
 type SubDAGNode struct {
 	BaseNode
@@ -109,9 +96,6 @@ type SubDAGNode struct {
 	inputMapping  func(map[NodeID]any) any
 	outputMapping func(map[NodeID]any) any
 }
-
-func (n *SubDAGNode) Type() NodeType { return NodeTypeSubDAG }
-
 type DAG struct {
 	entry  NodeID
 	nodes  map[NodeID]Node
@@ -261,13 +245,12 @@ func (d *DAG) toMermaid(b *strings.Builder, prefix string, indent string) {
 		node := d.nodes[NodeID(id)]
 		label := prefix + id
 
-		switch node.Type() {
-		case NodeTypeEntry:
+		switch n := node.(type) {
+		case *EntryNode:
 			_, _ = fmt.Fprintf(b, "%s%s[%q]\n", indent, label, label)
-		case NodeTypeSimple:
+		case *SimpleNode:
 			_, _ = fmt.Fprintf(b, "%s%s((%q))\n", indent, label, label)
-		case NodeTypeSubDAG:
-			n := node.(*SubDAGNode)
+		case *SubDAGNode:
 			_, _ = fmt.Fprintf(b, "%ssubgraph %s [Subgraph %s]\n", indent, label, label)
 			n.subDag.toMermaid(b, label+".", indent+"\t")
 			_, _ = fmt.Fprintf(b, "%send\n", indent)
@@ -289,6 +272,8 @@ type InstantiateOptions struct {
 	executor future.Executor
 	// interceptors 用来包装节点的执行函数，可以用于日志、监控等场景
 	interceptors []NodeFuncInterceptor
+	// nodeResults 预设的节点结果
+	nodeResults map[NodeID]any
 }
 
 type InstantiateOption func(*InstantiateOptions)
@@ -305,13 +290,14 @@ func WithNodeFuncInterceptor(interceptor NodeFuncInterceptor) InstantiateOption 
 	}
 }
 
+func WithNodeResults(results map[NodeID]any) InstantiateOption {
+	return func(opts *InstantiateOptions) {
+		opts.nodeResults = results
+	}
+}
+
 // Instantiate 创建 DAG 的一个实例。
-// result 参数用于指定节点的输出值，可以是以下两种形式之一：
-//  1. any：将该值作为 entry 节点的输出值。
-//  2. map[NodeID]any：指定各节点的输出值。
-//     如果节点指定了输出值，则在执行时会直接使用该值，跳过节点的执行逻辑。
-//     如果 entry 节点没有指定输出值，则会将整个 result 作为 entry 节点的输出值。
-func (d *DAG) Instantiate(result any, opts ...InstantiateOption) (*DAGInstance, error) {
+func (d *DAG) Instantiate(input any, opts ...InstantiateOption) (*DAGInstance, error) {
 	if !d.frozen {
 		return nil, ErrDAGNotFrozen
 	}
@@ -323,16 +309,10 @@ func (d *DAG) Instantiate(result any, opts ...InstantiateOption) (*DAGInstance, 
 		opt(options)
 	}
 
-	// 如果 result 是 map[NodeID]any，则作为各节点的输出
-	results, ok := result.(map[NodeID]any)
-	if !ok {
-		// 否则将 result 作为 entry 节点的输出
-		results = make(map[NodeID]any)
-		results[d.entry] = result
-	}
-	if _, ok := results[d.entry]; !ok {
-		// 如果 entry 节点没有值，则将整个 result 作为 entry 节点的输出
-		results[d.entry] = result
+	results := make(map[NodeID]any)
+	results[d.entry] = input
+	for id, result := range options.nodeResults {
+		results[id] = result
 	}
 
 	nodes := make(map[NodeID]*NodeInstance)
@@ -379,12 +359,12 @@ func (d *DAG) createNodeRunFunc(spec Node, results map[NodeID]any, opts []Instan
 		return func(_ context.Context, _ map[NodeID]any) (any, error) { return result, nil }
 	}
 
-	switch spec.Type() {
-	case NodeTypeSimple:
-		n := spec.(*SimpleNode)
+	switch n := spec.(type) {
+	case *EntryNode:
+		return func(_ context.Context, _ map[NodeID]any) (any, error) { return results[n.ID()], nil }
+	case *SimpleNode:
 		return n.run
-	case NodeTypeSubDAG:
-		n := spec.(*SubDAGNode)
+	case *SubDAGNode:
 		return func(ctx context.Context, deps map[NodeID]any) (any, error) {
 			var input any = deps
 			if n.inputMapping != nil {
