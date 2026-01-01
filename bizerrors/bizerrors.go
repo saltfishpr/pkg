@@ -31,8 +31,11 @@ func (e *Error) Format(s fmt.State, verb rune) {
 	switch verb {
 	case 'v':
 		if s.Flag('+') {
-			fmt.Fprintf(s, "%+v\n", e.error)
+			if e.error != nil {
+				fmt.Fprintf(s, "%+v\n", e.error)
+			}
 			fmt.Fprintf(s, "code=%d, message=%s", e.code, e.message)
+			fmt.Fprintf(s, "%s", e.stack)
 			return
 		}
 		fallthrough
@@ -44,10 +47,6 @@ func (e *Error) Format(s fmt.State, verb rune) {
 }
 
 func (e *Error) Unwrap() error {
-	return e.error
-}
-
-func (e *Error) Cause() error {
 	return e.error
 }
 

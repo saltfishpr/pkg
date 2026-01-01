@@ -8,48 +8,84 @@ import (
 )
 
 func ExampleNew() {
-	err := bizerrors.New(1001, "User not found") // stack trace from here
+	err := bizerrors.New(1001, "User not found") // <- stack top
 	fmt.Printf("%+v\n", err)
 
 	// Output:
 	// code=1001, message=User not found
-	// github.com/lebensoft/lebensoft-starter/pkg/bizerrors_test.ExampleNew
-	// 	/Users/wuwenshuo/repos/lebensoft/lebensoft-starter/pkg/bizerrors/example_test.go:12
+	// github.com/saltfishpr/pkg/bizerrors_test.ExampleNew
+	// 	github.com/saltfishpr/pkg/bizerrors/example_test.go:11
 	// testing.runExample
-	// 	/Users/wuwenshuo/sdk/go1.25.4/src/testing/run_example.go:63
+	// 	testing/run_example.go:63
 	// testing.runExamples
-	// 	/Users/wuwenshuo/sdk/go1.25.4/src/testing/example.go:41
+	// 	testing/example.go:41
 	// testing.(*M).Run
-	// 	/Users/wuwenshuo/sdk/go1.25.4/src/testing/testing.go:2339
+	// 	testing/testing.go:2339
 	// main.main
 	// 	_testmain.go:59
 	// runtime.main
-	// 	/Users/wuwenshuo/sdk/go1.25.4/src/runtime/proc.go:285
+	// 	runtime/proc.go:285
 	// runtime.goexit
-	// 	/Users/wuwenshuo/sdk/go1.25.4/src/runtime/asm_arm64.s:1268
-	// code=1001, message=User not found
+	// 	runtime/asm_arm64.s:1268
 }
 
 func ExampleError_WithCause() {
-	err := errors.New("oops") // stack trace from here
+	err := errors.New("oops") // <- stack top
 	err1 := bizerrors.New(1001, "User not found").WithCause(err)
 	fmt.Printf("%+v\n", err1)
 
 	// Output:
 	// oops
-	// github.com/lebensoft/lebensoft-starter/pkg/bizerrors_test.ExampleError_WithCause
-	// 	/Users/wuwenshuo/repos/lebensoft/lebensoft-starter/pkg/bizerrors/example_test.go:35
+	// github.com/saltfishpr/pkg/bizerrors_test.ExampleError_WithCause
+	// 	github.com/saltfishpr/pkg/bizerrors/example_test.go:33
 	// testing.runExample
-	// 	/Users/wuwenshuo/sdk/go1.25.4/src/testing/run_example.go:63
+	// 	testing/run_example.go:63
 	// testing.runExamples
-	// 	/Users/wuwenshuo/sdk/go1.25.4/src/testing/example.go:41
+	// 	testing/example.go:41
 	// testing.(*M).Run
-	// 	/Users/wuwenshuo/sdk/go1.25.4/src/testing/testing.go:2339
+	// 	testing/testing.go:2339
 	// main.main
 	// 	_testmain.go:59
 	// runtime.main
-	// 	/Users/wuwenshuo/sdk/go1.25.4/src/runtime/proc.go:285
+	// 	runtime/proc.go:285
 	// runtime.goexit
-	// 	/Users/wuwenshuo/sdk/go1.25.4/src/runtime/asm_arm64.s:1268
+	// 	runtime/asm_arm64.s:1268
 	// code=1001, message=User not found
+	// github.com/saltfishpr/pkg/bizerrors_test.ExampleError_WithCause
+	// 	github.com/saltfishpr/pkg/bizerrors/example_test.go:34
+	// testing.runExample
+	// 	testing/run_example.go:63
+	// testing.runExamples
+	// 	testing/example.go:41
+	// testing.(*M).Run
+	// 	testing/testing.go:2339
+	// main.main
+	// 	_testmain.go:59
+	// runtime.main
+	// 	runtime/proc.go:285
+	// runtime.goexit
+	// 	runtime/asm_arm64.s:1268
+}
+
+func ExampleError_WithCause_whenCauseIsBizError() {
+	cause := bizerrors.New(2002, "Database error") // <- stack top
+	err := bizerrors.New(1001, "User not found").WithCause(cause)
+	fmt.Printf("%+v\n", err)
+
+	// Output:
+	// code=2002, message=Database error
+	// github.com/saltfishpr/pkg/bizerrors_test.ExampleError_WithCause_whenCauseIsBizError
+	// 	github.com/saltfishpr/pkg/bizerrors/example_test.go:71
+	// testing.runExample
+	// 	testing/run_example.go:63
+	// testing.runExamples
+	// 	testing/example.go:41
+	// testing.(*M).Run
+	// 	testing/testing.go:2339
+	// main.main
+	// 	_testmain.go:61
+	// runtime.main
+	// 	runtime/proc.go:285
+	// runtime.goexit
+	// 	runtime/asm_arm64.s:1268
 }

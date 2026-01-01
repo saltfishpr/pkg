@@ -44,8 +44,8 @@ func (p *Promise[T]) Future() *Future[T] {
 	return &Future[T]{state: p.state}
 }
 
-// Free returns true if the Promise is not set.
-func (p *Promise[T]) Free() bool {
+// IsFree returns true if the Promise is not set.
+func (p *Promise[T]) IsFree() bool {
 	return p.state.isFree()
 }
 
@@ -86,7 +86,7 @@ func (f *Future[T]) Subscribe(cb func(val T, err error)) {
 	f.state.subscribe(cb)
 }
 
-// Done returns true if the Future is done.
-func (f *Future[T]) Done() bool {
+// IsDone returns true if the Future is done.
+func (f *Future[T]) IsDone() bool {
 	return f.state.isDone()
 }
