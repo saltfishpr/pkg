@@ -35,24 +35,24 @@ func (s *SecureString) Scan(ctx context.Context, field *schema.Field, dst reflec
 		return nil
 	}
 
-	var str string
+	var value string
 	switch v := dbValue.(type) {
 	case []byte:
-		str = string(v)
+		value = string(v)
 	case string:
-		str = v
+		value = v
 	default:
 		return errors.New(fmt.Sprintf("failed to unmarshal SecureString value: %#v", dbValue))
 	}
 
 	key := GetCryptoKey(ctx)
 	if key == nil {
-		*s = SecureString(str)
+		*s = SecureString(value)
 		return nil
 	}
 
 	c := crypto.New(key)
-	decrypted, err := c.Decrypt(str)
+	decrypted, err := c.Decrypt(value)
 	if err != nil {
 		return errors.WithStack(err)
 	}
@@ -72,18 +72,18 @@ func (*SecureString) Value(ctx context.Context, field *schema.Field, dst reflect
 		}
 	}
 
-	str := string(val)
-	if str == "" {
+	value := string(val)
+	if value == "" {
 		return "", nil
 	}
 
 	key := GetCryptoKey(ctx)
 	if key == nil {
-		return str, nil
+		return value, nil
 	}
 
 	c := crypto.New(key)
-	encrypted, err := c.Encrypt([]byte(str))
+	encrypted, err := c.Encrypt([]byte(value))
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
