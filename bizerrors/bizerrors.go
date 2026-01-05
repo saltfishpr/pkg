@@ -103,8 +103,12 @@ func (e *Error) WithDetailPair(key string, value string) *Error {
 }
 
 func (e *Error) WithStack() *Error {
+	err := errors.WithStack(e.error)
+	if err == nil {
+		err = errors.New(e.message)
+	}
 	return &Error{
-		error:   errors.WithStack(e.error),
+		error:   err,
 		code:    e.code,
 		message: e.message,
 		details: e.details,
