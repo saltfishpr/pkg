@@ -47,6 +47,18 @@ func (e *Error) Unwrap() error {
 	return e.error
 }
 
+func (e *Error) GetCode() int32 {
+	return e.code
+}
+
+func (e *Error) GetMessage() string {
+	return e.message
+}
+
+func (e *Error) GetDetails() map[string]string {
+	return e.details
+}
+
 func (e *Error) WithCause(cause error) *Error {
 	if cause == nil {
 		return e
