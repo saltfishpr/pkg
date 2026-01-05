@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/saltfishpr/pkg/compare/v0.3.0...v0.4.0) (2026-01-05)
+
+
+### Features
+
+* bizerrors ([9419209](https://github.com/saltfishpr/pkg/commit/94192093b1ac8681ba05386cbfbb2bda97abd9cd))
+
 ## [0.3.0](https://github.com/saltfishpr/pkg/compare/v0.2.0...v0.3.0) (2026-01-05)
 
 
