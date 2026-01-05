@@ -9,7 +9,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/saltfishpr/pkg/errors"
+	"github.com/pkg/errors"
 )
 
 const nonceSize = 12 // GCM 推荐的 nonce 长度为 12 字节

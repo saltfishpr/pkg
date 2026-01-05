@@ -2,12 +2,12 @@ package gormx
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 
-	"github.com/saltfishpr/pkg/crypto"
-	"github.com/saltfishpr/pkg/errors"
+	"github.com/pkg/errors"
 	"gorm.io/gorm/schema"
+
+	"github.com/saltfishpr/pkg/crypto"
 )
 
 var ctxKeyCryptoKey int
@@ -42,7 +42,7 @@ func (s *SecureString) Scan(ctx context.Context, field *schema.Field, dst reflec
 	case string:
 		value = v
 	default:
-		return errors.New(fmt.Sprintf("failed to unmarshal SecureString value: %#v", dbValue))
+		return errors.Errorf("failed to unmarshal SecureString value: %#v", dbValue)
 	}
 
 	key := GetCryptoKey(ctx)

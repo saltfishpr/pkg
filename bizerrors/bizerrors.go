@@ -3,7 +3,7 @@ package bizerrors
 import (
 	"fmt"
 
-	"github.com/saltfishpr/pkg/errors"
+	"github.com/pkg/errors"
 )
 
 type Error struct {
@@ -11,7 +11,6 @@ type Error struct {
 	code    int32
 	message string
 	details map[string]string
-	stack   string
 }
 
 func New(code int32, message string) *Error {
@@ -19,7 +18,6 @@ func New(code int32, message string) *Error {
 		code:    code,
 		message: message,
 		details: make(map[string]string),
-		stack:   errors.Stack(1, 32),
 	}
 }
 
@@ -35,7 +33,6 @@ func (e *Error) Format(s fmt.State, verb rune) {
 				fmt.Fprintf(s, "%+v\n", e.error)
 			}
 			fmt.Fprintf(s, "code=%d, message=%s", e.code, e.message)
-			fmt.Fprintf(s, "%s", e.stack)
 			return
 		}
 		fallthrough
@@ -48,22 +45,6 @@ func (e *Error) Format(s fmt.State, verb rune) {
 
 func (e *Error) Unwrap() error {
 	return e.error
-}
-
-func (e *Error) Stack() string {
-	return e.stack
-}
-
-func (e *Error) GetCode() int32 {
-	return e.code
-}
-
-func (e *Error) GetMessage() string {
-	return e.message
-}
-
-func (e *Error) GetDetails() map[string]string {
-	return e.details
 }
 
 func (e *Error) WithCause(cause error) *Error {
@@ -79,7 +60,6 @@ func (e *Error) WithCause(cause error) *Error {
 		code:    e.code,
 		message: e.message,
 		details: e.details,
-		stack:   e.stack,
 	}
 }
 
@@ -89,7 +69,6 @@ func (e *Error) WithMessage(message string) *Error {
 		code:    e.code,
 		message: message,
 		details: e.details,
-		stack:   e.stack,
 	}
 }
 
@@ -106,7 +85,6 @@ func (e *Error) WithDetails(extra map[string]string) *Error {
 		code:    e.code,
 		message: e.message,
 		details: newDetails,
-		stack:   e.stack,
 	}
 }
 
@@ -121,27 +99,15 @@ func (e *Error) WithDetailPair(key string, value string) *Error {
 		code:    e.code,
 		message: e.message,
 		details: details,
-		stack:   e.stack,
 	}
 }
 
 func (e *Error) WithStack() *Error {
 	return &Error{
-		error:   e.error,
+		error:   errors.WithStack(e.error),
 		code:    e.code,
 		message: e.message,
 		details: e.details,
-		stack:   errors.Stack(1, 32),
-	}
-}
-
-func (e *Error) WithStackSkip(skip int) *Error {
-	return &Error{
-		error:   e.error,
-		code:    e.code,
-		message: e.message,
-		details: e.details,
-		stack:   errors.Stack(skip+1, 32),
 	}
 }
 

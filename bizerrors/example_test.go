@@ -3,8 +3,9 @@ package bizerrors_test
 import (
 	"fmt"
 
+	"github.com/pkg/errors"
+
 	"github.com/saltfishpr/pkg/bizerrors"
-	"github.com/saltfishpr/pkg/errors"
 )
 
 func ExampleNew() {
