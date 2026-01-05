@@ -27,6 +27,3 @@ go.work.sum
 # OS General
 Thumbs.db
 .DS_Store
-
-# Project
-.vscode/

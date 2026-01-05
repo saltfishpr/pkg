@@ -1,13 +1,13 @@
 package bizerrors
 
 import (
+	"errors"
 	"fmt"
-
-	"github.com/pkg/errors"
 )
 
 type Error struct {
-	error
+	error   // maybe nil
+	*stack  // won't be nil
 	code    int32
 	message string
 	details map[string]string
@@ -15,6 +15,7 @@ type Error struct {
 
 func New(code int32, message string) *Error {
 	return &Error{
+		stack:   callers(1, 16),
 		code:    code,
 		message: message,
 		details: make(map[string]string),
@@ -33,6 +34,7 @@ func (e *Error) Format(s fmt.State, verb rune) {
 				fmt.Fprintf(s, "%+v\n", e.error)
 			}
 			fmt.Fprintf(s, "code=%d, message=%s", e.code, e.message)
+			e.stack.StackTrace().Format(s, verb)
 			return
 		}
 		fallthrough
@@ -47,6 +49,22 @@ func (e *Error) Unwrap() error {
 	return e.error
 }
 
+func (e *Error) StackTrace() StackTrace {
+	return e.stack.StackTrace()
+}
+
+func (e *Error) GetCode() int32 {
+	return e.code
+}
+
+func (e *Error) GetMessage() string {
+	return e.message
+}
+
+func (e *Error) GetDetails() map[string]string {
+	return e.details
+}
+
 func (e *Error) WithCause(cause error) *Error {
 	if cause == nil {
 		return e
@@ -57,6 +75,7 @@ func (e *Error) WithCause(cause error) *Error {
 	}
 	return &Error{
 		error:   cause,
+		stack:   e.stack,
 		code:    e.code,
 		message: e.message,
 		details: e.details,
@@ -66,6 +85,7 @@ func (e *Error) WithCause(cause error) *Error {
 func (e *Error) WithMessage(message string) *Error {
 	return &Error{
 		error:   e.error,
+		stack:   e.stack,
 		code:    e.code,
 		message: message,
 		details: e.details,
@@ -82,6 +102,7 @@ func (e *Error) WithDetails(extra map[string]string) *Error {
 	}
 	return &Error{
 		error:   e.error,
+		stack:   e.stack,
 		code:    e.code,
 		message: e.message,
 		details: newDetails,
@@ -96,6 +117,7 @@ func (e *Error) WithDetailPair(key string, value string) *Error {
 	details[key] = value
 	return &Error{
 		error:   e.error,
+		stack:   e.stack,
 		code:    e.code,
 		message: e.message,
 		details: details,
@@ -103,12 +125,19 @@ func (e *Error) WithDetailPair(key string, value string) *Error {
 }
 
 func (e *Error) WithStack() *Error {
-	err := errors.WithStack(e.error)
-	if err == nil {
-		err = errors.New(e.message)
-	}
 	return &Error{
-		error:   err,
+		error:   e.error,
+		stack:   callers(1, 16),
+		code:    e.code,
+		message: e.message,
+		details: e.details,
+	}
+}
+
+func (e *Error) WithStackSkip(skip int) *Error {
+	return &Error{
+		error:   e.error,
+		stack:   callers(skip+1, 16),
 		code:    e.code,
 		message: e.message,
 		details: e.details,
