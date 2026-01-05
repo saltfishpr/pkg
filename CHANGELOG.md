@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/saltfishpr/pkg/compare/v0.3.0...v0.3.1) (2026-01-05)
+
+
+### Bug Fixes
+
+* add get methods ([015d517](https://github.com/saltfishpr/pkg/commit/015d517a25065f32f122fd8c86fde42033ee955e))
+
 ## [0.3.0](https://github.com/saltfishpr/pkg/compare/v0.2.0...v0.3.0) (2026-01-05)
 
 
