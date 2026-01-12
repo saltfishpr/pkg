@@ -52,7 +52,7 @@ import (
 )
 
 var (
-	ErrDAGNodeExists = errors.New("DAG node is already exists")
+	ErrDAGNodeExists = errors.New("DAG node already exists")
 	ErrDAGFrozen     = errors.New("DAG is frozen")
 	ErrDAGNotFrozen  = errors.New("DAG is not frozen")
 	ErrDAGIncomplete = errors.New("DAG is incomplete")
@@ -267,7 +267,7 @@ func (d *DAG) toMermaid(b *strings.Builder, prefix string, indent string) {
 	}
 }
 
-type InstantiateOptions struct {
+type instantiateOptions struct {
 	// executor 用于执行 DAG 实例中的节点
 	executor future.Executor
 	// interceptors 用来包装节点的执行函数，可以用于日志、监控等场景
@@ -276,22 +276,22 @@ type InstantiateOptions struct {
 	nodeResults map[NodeID]any
 }
 
-type InstantiateOption func(*InstantiateOptions)
+type InstantiateOption func(*instantiateOptions)
 
 func WithExecutor(executor future.Executor) InstantiateOption {
-	return func(opts *InstantiateOptions) {
+	return func(opts *instantiateOptions) {
 		opts.executor = executor
 	}
 }
 
 func WithNodeFuncInterceptor(interceptor NodeFuncInterceptor) InstantiateOption {
-	return func(opts *InstantiateOptions) {
+	return func(opts *instantiateOptions) {
 		opts.interceptors = append(opts.interceptors, interceptor)
 	}
 }
 
 func WithNodeResults(results map[NodeID]any) InstantiateOption {
-	return func(opts *InstantiateOptions) {
+	return func(opts *instantiateOptions) {
 		opts.nodeResults = results
 	}
 }
@@ -302,7 +302,7 @@ func (d *DAG) Instantiate(input any, opts ...InstantiateOption) (*DAGInstance, e
 		return nil, ErrDAGNotFrozen
 	}
 
-	options := &InstantiateOptions{
+	options := &instantiateOptions{
 		executor: executors.GoExecutor{},
 	}
 	for _, opt := range opts {
@@ -415,7 +415,7 @@ type DAGInstance struct {
 }
 
 func (d *DAGInstance) Run(ctx context.Context) (map[NodeID]any, error) {
-	return d.RunAsync(ctx).Get(ctx)
+	return d.RunAsync(ctx).Get()
 }
 
 func (d *DAGInstance) RunAsync(ctx context.Context) *future.Future[map[NodeID]any] {
@@ -424,32 +424,33 @@ func (d *DAGInstance) RunAsync(ctx context.Context) *future.Future[map[NodeID]an
 	for _, node := range d.nodes {
 		futures = append(futures, node.result)
 	}
-	return future.Then(
-		future.AllOf(futures...),
-		func(_ []any, _ error) (map[NodeID]any, error) {
-			results := make(map[NodeID]any)
-			for id, node := range d.nodes {
-				val, err := node.result.Get(ctx)
-				if err != nil {
-					if errors.Is(err, ErrNodeSkipped) {
-						continue
+	return future.WithContext(ctx,
+		future.Then(future.AllOf(futures...),
+			func(_ []any, _ error) (map[NodeID]any, error) {
+				results := make(map[NodeID]any)
+				for id, node := range d.nodes {
+					val, err := node.result.Get()
+					if err != nil {
+						if errors.Is(err, ErrNodeSkipped) {
+							continue
+						}
+						return nil, fmt.Errorf("node %s failed: %w", id, err)
 					}
-					return nil, fmt.Errorf("node %s failed: %w", id, err)
+					results[id] = val
 				}
-				results[id] = val
-			}
-			return results, nil
-		},
+				return results, nil
+			},
+		),
 	)
 }
 
 func (d *DAGInstance) runNode(ctx context.Context, id NodeID) {
 	node := d.nodes[id]
 	node.startTime = time.Now()
-	future.CtxSubmit(ctx, d.executor, func(ctx context.Context) (any, error) {
+	future.Submit(d.executor, func() (any, error) {
 		deps := make(map[NodeID]any)
 		for _, depid := range node.spec.Deps() {
-			v, err := d.nodes[depid].result.Get(ctx)
+			v, err := d.nodes[depid].result.Get()
 			if err != nil {
 				if errors.Is(err, ErrNodeSkipped) {
 					return nil, ErrNodeSkipped

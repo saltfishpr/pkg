@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"runtime/debug"
 	"sync/atomic"
+	"time"
+
+	"github.com/saltfishpr/pkg/routine"
 )
 
 var (
@@ -15,10 +18,6 @@ var (
 
 func Async[T any](f func() (T, error)) *Future[T] {
 	return Submit(executor, f)
-}
-
-func CtxAsync[T any](ctx context.Context, f func(ctx context.Context) (T, error)) *Future[T] {
-	return CtxSubmit(ctx, executor, f)
 }
 
 func Submit[T any](e Executor, f func() (T, error)) *Future[T] {
@@ -33,22 +32,6 @@ func Submit[T any](e Executor, f func() (T, error)) *Future[T] {
 			s.set(val, err)
 		}()
 		val, err = f()
-	})
-	return &Future[T]{state: s}
-}
-
-func CtxSubmit[T any](ctx context.Context, e Executor, f func(ctx context.Context) (T, error)) *Future[T] {
-	s := newState[T]()
-	e.Submit(func() {
-		var val T
-		var err error
-		defer func() {
-			if r := recover(); r != nil {
-				err = fmt.Errorf("%w, err=%s, stack=%s", ErrPanic, r, debug.Stack())
-			}
-			s.set(val, err)
-		}()
-		val, err = f(ctx)
 	})
 	return &Future[T]{state: s}
 }
@@ -97,4 +80,46 @@ func AllOf[T any](fs ...*Future[T]) *Future[[]T] {
 		})
 	}
 	return &Future[[]T]{state: s}
+}
+
+func Timeout[T any](f *Future[T], d time.Duration) *Future[T] {
+	var done uint32
+	s := &state[T]{}
+	timer := time.AfterFunc(d, func() {
+		if atomic.CompareAndSwapUint32(&done, 0, 1) {
+			var zero T
+			s.set(zero, ErrTimeout)
+		}
+	})
+	f.state.subscribe(func(val T, err error) {
+		if atomic.CompareAndSwapUint32(&done, 0, 1) {
+			s.set(val, err)
+			timer.Stop()
+		}
+	})
+	return &Future[T]{state: s}
+}
+
+// WithContext returns a Future that completes when either the original Future completes
+// or the context is cancelled, whichever happens first.
+func WithContext[T any](ctx context.Context, f *Future[T]) *Future[T] {
+	var done uint32
+	s := newState[T]()
+	routine.GoSafe(func() {
+		select {
+		case <-ctx.Done():
+			if atomic.CompareAndSwapUint32(&done, 0, 1) {
+				var zero T
+				s.set(zero, ctx.Err())
+			}
+		case <-s.done: // s.set will close s.done
+			return
+		}
+	})
+	f.state.subscribe(func(val T, err error) {
+		if atomic.CompareAndSwapUint32(&done, 0, 1) {
+			s.set(val, err)
+		}
+	})
+	return &Future[T]{state: s}
 }

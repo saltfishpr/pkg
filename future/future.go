@@ -2,8 +2,6 @@
 // Inspired by https://github.com/jizhuozhi/go-future
 package future
 
-import "context"
-
 // Promise The Promise provides a facility to store a value or an error that is later acquired asynchronously via a Future
 // created by the Promise. Note that the Promise object is meant to be set only once.
 //
@@ -65,17 +63,8 @@ type Future[T any] struct {
 }
 
 // Get returns the value and error of the Future.
-func (f *Future[T]) Get(ctx context.Context) (T, error) {
-	return f.state.get(ctx)
-}
-
-// GetOrDefault returns the value of the Future. If error has been set, it returns the default value.
-func (f *Future[T]) GetOrDefault(ctx context.Context, defaultVal T) T {
-	val, err := f.state.get(ctx)
-	if err != nil {
-		return defaultVal
-	}
-	return val
+func (f *Future[T]) Get() (T, error) {
+	return f.state.get()
 }
 
 // Subscribe registers a callback to be called when the Future is done.

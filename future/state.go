@@ -1,7 +1,6 @@
 package future
 
 import (
-	"context"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -57,18 +56,12 @@ func (s *state[T]) set(val T, err error) bool {
 	return true
 }
 
-func (s *state[T]) get(ctx context.Context) (T, error) {
+func (s *state[T]) get() (T, error) {
 	if s.isDone() {
 		return s.val, s.err
 	}
-
-	select {
-	case <-ctx.Done():
-		var value T
-		return value, ctx.Err()
-	case <-s.done:
-		return s.val, s.err
-	}
+	<-s.done
+	return s.val, s.err
 }
 
 func (s *state[T]) subscribe(cb func(T, error)) {

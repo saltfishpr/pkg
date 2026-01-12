@@ -297,7 +297,7 @@ func ExampleDAGInstance_RunAsync() {
 	// 可以在这里做其他事情...
 
 	// 等待结果
-	results, err := future.Get(ctx)
+	results, err := future.Get()
 	if err != nil {
 		log.Fatal(err)
 	}

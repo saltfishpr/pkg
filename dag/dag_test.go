@@ -340,7 +340,7 @@ func TestDAGInstance_RunAsync(t *testing.T) {
 	require.NoError(t, err)
 
 	future := inst.RunAsync(ctx)
-	results, err := future.Get(ctx)
+	results, err := future.Get()
 	require.NoError(t, err)
 
 	assert.Equal(t, "result1", results["node1"].(string))
