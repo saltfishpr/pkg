@@ -302,11 +302,11 @@ func (d *DAG) Instantiate(input any, options ...InstantiateOption) (*DAGInstance
 		return nil, ErrDAGNotFrozen
 	}
 
-	opts := &instantiateOptions{
+	opts := instantiateOptions{
 		executor: executors.GoExecutor{},
 	}
 	for _, option := range options {
-		option(opts)
+		option(&opts)
 	}
 
 	results := make(map[NodeID]any)

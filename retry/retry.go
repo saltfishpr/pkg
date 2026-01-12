@@ -31,20 +31,16 @@ func WithShouldRetryFunc(fn func(err error) bool) RetryOption {
 	}
 }
 
-func defaultRetryOptions() *retryOptions {
-	return &retryOptions{
+func Do[T any](ctx context.Context, f func() (T, error), options ...RetryOption) (T, error) {
+	opts := retryOptions{
 		maxAttempts:   3,
 		retryStrategy: FixedBackoff(100 * time.Millisecond),
 		shouldRetry: func(err error) bool {
 			return true
 		},
 	}
-}
-
-func Do[T any](ctx context.Context, f func() (T, error), options ...RetryOption) (T, error) {
-	opts := defaultRetryOptions()
 	for _, option := range options {
-		option(opts)
+		option(&opts)
 	}
 
 	var zero T
