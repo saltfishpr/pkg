@@ -72,26 +72,26 @@ type Node interface {
 	Deps() []NodeID
 }
 
-type BaseNode struct {
+type baseNode struct {
 	id   NodeID
 	deps []NodeID
 }
 
-func (n *BaseNode) ID() NodeID { return n.id }
+func (n *baseNode) ID() NodeID { return n.id }
 
-func (n *BaseNode) Deps() []NodeID { return n.deps }
+func (n *baseNode) Deps() []NodeID { return n.deps }
 
 type EntryNode struct {
-	BaseNode
+	baseNode
 }
 
 type SimpleNode struct {
-	BaseNode
+	baseNode
 	run NodeFunc
 }
 
 type SubDAGNode struct {
-	BaseNode
+	baseNode
 	subDag        *DAG
 	inputMapping  func(map[NodeID]any) any
 	outputMapping func(map[NodeID]any) any
@@ -108,7 +108,7 @@ func NewDAG(entry NodeID) *DAG {
 	}
 	dag.entry = entry
 	dag.nodes[entry] = &EntryNode{
-		BaseNode: BaseNode{
+		baseNode: baseNode{
 			id: entry,
 		},
 	}
@@ -123,7 +123,7 @@ func (d *DAG) AddNode(id NodeID, deps []NodeID, fn NodeFunc) error {
 		return ErrDAGNodeExists
 	}
 	d.nodes[id] = &SimpleNode{
-		BaseNode: BaseNode{
+		baseNode: baseNode{
 			id:   id,
 			deps: deps,
 		},
@@ -144,7 +144,7 @@ func (d *DAG) AddSubGraph(
 		return ErrDAGNodeExists
 	}
 	d.nodes[id] = &SubDAGNode{
-		BaseNode: BaseNode{
+		baseNode: baseNode{
 			id:   id,
 			deps: deps,
 		},
@@ -448,7 +448,7 @@ func (d *DAGInstance) runNode(ctx context.Context, id NodeID) {
 	node := d.nodes[id]
 	node.startTime = time.Now()
 	future.Submit(d.executor, func() (any, error) {
-		deps := make(map[NodeID]any)
+		deps := make(map[NodeID]any, len(node.spec.Deps()))
 		for _, depid := range node.spec.Deps() {
 			v, err := d.nodes[depid].result.Get()
 			if err != nil {

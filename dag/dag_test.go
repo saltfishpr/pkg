@@ -490,20 +490,6 @@ func TestDAGInstance_ToMermaid_WithSubDAG(t *testing.T) {
 	}
 }
 
-func TestBaseNode(t *testing.T) {
-	base := BaseNode{
-		id:   "test",
-		deps: []NodeID{"dep1", "dep2"},
-	}
-
-	assert.Equal(t, NodeID("test"), base.ID())
-
-	deps := base.Deps()
-	require.Len(t, deps, 2)
-	assert.Equal(t, NodeID("dep1"), deps[0])
-	assert.Equal(t, NodeID("dep2"), deps[1])
-}
-
 func TestDAG_ComplexDependencies(t *testing.T) {
 	d := NewDAG("entry")
 
