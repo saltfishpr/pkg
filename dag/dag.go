@@ -165,7 +165,6 @@ func (d *DAG) Freeze() error {
 	if err := d.checkCycle(); err != nil {
 		return err
 	}
-	d.frozen = true
 	for _, node := range d.nodes {
 		if subDagNode, ok := node.(*SubDAGNode); ok {
 			if err := subDagNode.subDag.Freeze(); err != nil {
@@ -173,6 +172,7 @@ func (d *DAG) Freeze() error {
 			}
 		}
 	}
+	d.frozen = true
 	return nil
 }
 
@@ -297,21 +297,21 @@ func WithNodeResults(results map[NodeID]any) InstantiateOption {
 }
 
 // Instantiate 创建 DAG 的一个实例。
-func (d *DAG) Instantiate(input any, opts ...InstantiateOption) (*DAGInstance, error) {
+func (d *DAG) Instantiate(input any, options ...InstantiateOption) (*DAGInstance, error) {
 	if !d.frozen {
 		return nil, ErrDAGNotFrozen
 	}
 
-	options := &instantiateOptions{
+	opts := &instantiateOptions{
 		executor: executors.GoExecutor{},
 	}
-	for _, opt := range opts {
-		opt(options)
+	for _, option := range options {
+		option(opts)
 	}
 
 	results := make(map[NodeID]any)
 	results[d.entry] = input
-	for id, result := range options.nodeResults {
+	for id, result := range opts.nodeResults {
 		results[id] = result
 	}
 
@@ -329,9 +329,9 @@ func (d *DAG) Instantiate(input any, opts ...InstantiateOption) (*DAGInstance, e
 		}
 		node.pending.Store(int32(len(spec.Deps())))
 
-		run := d.createNodeRunFunc(spec, results, opts, node)
-		for i := len(options.interceptors) - 1; i >= 0; i-- {
-			run = options.interceptors[i](run)
+		run := d.createNodeRunFunc(spec, results, options, node)
+		for i := len(opts.interceptors) - 1; i >= 0; i-- {
+			run = opts.interceptors[i](run)
 		}
 		node.run = run
 
@@ -348,11 +348,11 @@ func (d *DAG) Instantiate(input any, opts ...InstantiateOption) (*DAGInstance, e
 	return &DAGInstance{
 		spec:     d,
 		nodes:    nodes,
-		executor: options.executor,
+		executor: opts.executor,
 	}, nil
 }
 
-func (d *DAG) createNodeRunFunc(spec Node, results map[NodeID]any, opts []InstantiateOption, node *NodeInstance) NodeFunc {
+func (d *DAG) createNodeRunFunc(spec Node, results map[NodeID]any, options []InstantiateOption, node *NodeInstance) NodeFunc {
 	result, ok := results[spec.ID()]
 	if ok {
 		// 节点已经有值，直接返回
@@ -370,7 +370,7 @@ func (d *DAG) createNodeRunFunc(spec Node, results map[NodeID]any, opts []Instan
 			if n.inputMapping != nil {
 				input = n.inputMapping(deps)
 			}
-			instance, err := n.subDag.Instantiate(input, opts...)
+			instance, err := n.subDag.Instantiate(input, options...)
 			if err != nil {
 				return nil, fmt.Errorf("instantiate sub DAG failed: %w", err)
 			}

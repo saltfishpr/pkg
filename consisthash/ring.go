@@ -33,7 +33,7 @@ func WithHashFunc[T any](hf HashFunc) RingOption[T] {
 }
 
 // NewRing 创建一个新的哈希环
-func NewRing[T any](replicas int, keyFunc KeyFunc[T], opts ...RingOption[T]) *Ring[T] {
+func NewRing[T any](replicas int, keyFunc KeyFunc[T], options ...RingOption[T]) *Ring[T] {
 	r := &Ring[T]{
 		hashFunc: func(data []byte) uint64 {
 			f := fnv.New64a()
@@ -44,8 +44,8 @@ func NewRing[T any](replicas int, keyFunc KeyFunc[T], opts ...RingOption[T]) *Ri
 		replicas: replicas,
 		hashMap:  make(map[uint64]T),
 	}
-	for _, opt := range opts {
-		opt(r)
+	for _, option := range options {
+		option(r)
 	}
 	return r
 }

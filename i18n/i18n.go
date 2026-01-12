@@ -35,7 +35,7 @@ var DefaultOptions = &Options{
 }
 
 type I18n interface {
-	Get(lang language.Tag, opts ...Option) (string, error)
+	Get(lang language.Tag, options ...Option) (string, error)
 }
 
 type SimpleI18n struct {
@@ -48,16 +48,16 @@ func NewSimpleI18n(data map[language.Tag]string) *SimpleI18n {
 	}
 }
 
-func (i *SimpleI18n) Get(lang language.Tag, opts ...Option) (string, error) {
-	options := *DefaultOptions // copy default options
-	for _, opt := range opts {
-		opt(&options)
+func (i *SimpleI18n) Get(lang language.Tag, options ...Option) (string, error) {
+	opts := *DefaultOptions // copy default options
+	for _, option := range options {
+		option(&opts)
 	}
 
 	if s, ok := i.data[lang]; ok {
 		return s, nil
 	}
-	if s, ok := i.data[options.Fallback]; ok {
+	if s, ok := i.data[opts.Fallback]; ok {
 		return s, nil
 	}
 	return "", fmt.Errorf("language %s not supported: %w", lang, ErrLanguageNotSupported)
@@ -87,22 +87,22 @@ func (i *TextTemplateI18n) Add(lang language.Tag, tpl string) error {
 	return nil
 }
 
-func (i *TextTemplateI18n) Get(lang language.Tag, opts ...Option) (string, error) {
-	options := *DefaultOptions // copy default options
-	for _, opt := range opts {
-		opt(&options)
+func (i *TextTemplateI18n) Get(lang language.Tag, options ...Option) (string, error) {
+	opts := *DefaultOptions // copy default options
+	for _, option := range options {
+		option(&opts)
 	}
 
 	tpl, ok := i.data[lang]
 	if !ok {
-		tpl, ok = i.data[options.Fallback]
+		tpl, ok = i.data[opts.Fallback]
 		if !ok {
 			return "", fmt.Errorf("language %s not supported: %w", lang, ErrLanguageNotSupported)
 		}
 	}
 
 	var buf bytes.Buffer
-	if err := tpl.Execute(&buf, options.Arg); err != nil {
+	if err := tpl.Execute(&buf, opts.Arg); err != nil {
 		return "", fmt.Errorf("execute template %s: %w", tpl.Name(), err)
 	}
 	return buf.String(), nil

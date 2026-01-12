@@ -48,7 +48,7 @@ func WithServiceResolverReplicas(replicas int) ServiceResolverOption {
 	}
 }
 
-func NewServiceResolver(key string, provider discovery.Provider, opts ...ServiceResolverOption) *serviceResolver {
+func NewServiceResolver(key string, provider discovery.Provider, options ...ServiceResolverOption) *serviceResolver {
 	sr := &serviceResolver{
 		key:                   key,
 		provider:              provider,
@@ -59,8 +59,8 @@ func NewServiceResolver(key string, provider discovery.Provider, opts ...Service
 		tickerRefreshInterval: 10 * time.Second,
 	}
 	sr.ring.Store(newRing(sr.replicas, []discovery.Instance{}))
-	for _, opt := range opts {
-		opt(sr)
+	for _, option := range options {
+		option(sr)
 	}
 	return sr
 }
