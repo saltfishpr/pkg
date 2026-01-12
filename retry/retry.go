@@ -5,34 +5,34 @@ import (
 	"time"
 )
 
-type RetryOptions struct {
+type retryOptions struct {
 	maxAttempts   int
 	retryStrategy RetryStrategy
 	shouldRetry   func(err error) bool
 }
 
-type RetryOption func(*RetryOptions)
+type RetryOption func(*retryOptions)
 
 func WithMaxAttempts(maxAttempts int) RetryOption {
-	return func(opts *RetryOptions) {
+	return func(opts *retryOptions) {
 		opts.maxAttempts = maxAttempts
 	}
 }
 
 func WithRetryStrategy(strategy RetryStrategy) RetryOption {
-	return func(opts *RetryOptions) {
+	return func(opts *retryOptions) {
 		opts.retryStrategy = strategy
 	}
 }
 
 func WithShouldRetryFunc(fn func(err error) bool) RetryOption {
-	return func(opts *RetryOptions) {
+	return func(opts *retryOptions) {
 		opts.shouldRetry = fn
 	}
 }
 
-func defaultRetryOptions() *RetryOptions {
-	return &RetryOptions{
+func defaultRetryOptions() *retryOptions {
+	return &retryOptions{
 		maxAttempts:   3,
 		retryStrategy: FixedBackoff(100 * time.Millisecond),
 		shouldRetry: func(err error) bool {
@@ -57,9 +57,6 @@ func Do[T any](ctx context.Context, f func() (T, error), options ...RetryOption)
 
 		result, err := f()
 		if err == nil {
-			if attempt > 0 {
-				// TODO 考虑记录重试成功的日志
-			}
 			return result, nil
 		}
 		lastErr = err
