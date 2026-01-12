@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/saltfishpr/pkg/compare/v0.4.0...v0.5.0) (2026-01-12)
+
+
+### Features
+
+* baseNode 改为私有结构体 ([1e81d14](https://github.com/saltfishpr/pkg/commit/1e81d14a5be51c2e747855492627ef47aebf5de4))
+* future.Future.Get remove ctx arg ([7dd6803](https://github.com/saltfishpr/pkg/commit/7dd6803faea10d458b6458f445a90a26e32a6ff5))
+
 ## [0.4.0](https://github.com/saltfishpr/pkg/compare/v0.3.0...v0.4.0) (2026-01-05)
 
 
