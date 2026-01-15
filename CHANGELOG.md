@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/saltfishpr/pkg/compare/v0.5.0...v0.6.0) (2026-01-15)
+
+
+### Features
+
+* routine remove unused ctx functions ([8647012](https://github.com/saltfishpr/pkg/commit/864701270207e15f00876cb7729516e5a74dde04))
+
 ## [0.5.0](https://github.com/saltfishpr/pkg/compare/v0.4.0...v0.5.0) (2026-01-12)
 
 
