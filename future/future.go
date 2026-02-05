@@ -1,81 +1,80 @@
-// Package future provides a simple implementation of Promise-Future pattern in Go.
-// Inspired by https://github.com/jizhuozhi/go-future
+// Package future 提供了 Promise-Future 模式的简单 Go 语言实现。
 package future
 
-// Promise The Promise provides a facility to store a value or an error that is later acquired asynchronously via a Future
-// created by the Promise. Note that the Promise object is meant to be set only once.
+// Promise 提供了一种存储值或错误的机制，该值或错误随后可以通过由 Promise 创建的 Future 异步获取。
+// 注意：Promise 对象只能被设置一次。
 //
-// Each Promise is associated with a shared state, which contains some state information and a result which may be not yet evaluated,
-// evaluated to a value (possibly nil) or evaluated to an error.
+// 每个 Promise 关联一个共享状态，该共享状态包含一些状态信息和一个结果，
+// 该结果可能尚未计算、已计算为值（可能为 nil）或已计算为错误。
 //
-// The Promise is the "push" end of the promise-future communication channel: the operation that stores a value in the shared state
-// synchronizes-with (as defined in Go's memory model) the successful return from any function that is waiting on the shared state
-// (such as Future.Get).
+// Promise 是 promise-future 通信通道的"推送"端：在共享状态中存储值的操作
+// 与等待该共享状态的任何函数（如 Future.Get）的成功返回同步
+// （按照 Go 内存模型的定义）。
 //
-// A Promise must not be copied after first use.
+// Promise 在首次使用后不得被复制。
 type Promise[T any] struct {
 	state *state[T]
 }
 
-// NewPromise creates a new Promise object.
+// NewPromise 创建一个新的 Promise 对象。
 func NewPromise[T any]() *Promise[T] {
 	return &Promise[T]{
-		state: newState[T](),
+		state: &state[T]{},
 	}
 }
 
-// Set sets the value and error of the Promise.
-// It panics if the Promise is already satisfied.
+// Set 设置 Promise 的值和错误。
+// 如果 Promise 已经被设置，则会 panic。
 func (p *Promise[T]) Set(val T, err error) {
 	if !p.state.set(val, err) {
 		panic("promise already satisfied")
 	}
 }
 
-// SetSafety sets the value and error of the Promise, and it will return false if already set.
+// SetSafety 设置 Promise 的值和错误，如果已经设置则返回 false。
 func (p *Promise[T]) SetSafety(val T, err error) bool {
 	return p.state.set(val, err)
 }
 
-// Future returns a Future object associated with the Promise.
+// Future 返回与 Promise 关联的 Future 对象。
 func (p *Promise[T]) Future() *Future[T] {
 	return &Future[T]{state: p.state}
 }
 
-// IsFree returns true if the Promise is not set.
+// IsFree 如果 Promise 尚未设置则返回 true。
 func (p *Promise[T]) IsFree() bool {
 	return p.state.isFree()
 }
 
-// Future The Future provides a mechanism to access the result of asynchronous operations:
+// Future 提供了一种访问异步操作结果的机制：
 //
-// 1. An asynchronous operation (Async and Promise) can provide a Future to the creator of that asynchronous operation.
+// 1. 异步操作（Async 和 Promise）可以为该异步操作的创建者提供一个 Future。
 //
-// 2. The creator of the asynchronous operation can then use a variety of methods to query, wait for, or extract a value from the Future.
-// These methods may block if the asynchronous operation has not yet provided a value.
+// 2. 异步操作的创建者可以使用多种方法来查询、等待或从 Future 中提取值。
+// 如果异步操作尚未提供值，这些方法可能会阻塞。
 //
-// 3. When the asynchronous operation is ready to send a result to the creator, it can do so by modifying shared state (e.g. Promise.Set)
-// that is linked to the creator's std::future.
+// 3. 当异步操作准备向创建者发送结果时，可以通过修改与创建者的 Future 关联的
+// 共享状态（例如 Promise.Set）来实现。
 //
-// The Future also has the ability to register a callback to be called when the asynchronous operation is ready to send a result to the creator.
+// Future 还具有注册回调的能力，当异步操作准备向创建者发送结果时将调用该回调。
 type Future[T any] struct {
 	state *state[T]
 }
 
-// Get returns the value and error of the Future.
+// Get 返回 Future 的值和错误。
 func (f *Future[T]) Get() (T, error) {
 	return f.state.get()
 }
 
-// Subscribe registers a callback to be called when the Future is done.
+// Subscribe 注册一个回调，在 Future 完成时调用。
 //
-// NOTE: The callback will be called in goroutine that is the same as the goroutine which changed Future state.
-// The callback should not contain any blocking operations.
+// 注意：回调将在与改变 Future 状态相同的 goroutine 中调用。
+// 回调中不应包含任何阻塞操作。
 func (f *Future[T]) Subscribe(cb func(val T, err error)) {
 	f.state.subscribe(cb)
 }
 
-// IsDone returns true if the Future is done.
+// IsDone 如果 Future 已完成则返回 true。
 func (f *Future[T]) IsDone() bool {
 	return f.state.isDone()
 }

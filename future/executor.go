@@ -2,27 +2,25 @@ package future
 
 import "github.com/saltfishpr/pkg/future/executors"
 
-// Executor defines an abstraction for executing asynchronous tasks in go-future.
+// Executor 定义了在 go-future 中执行异步任务的抽象。
 //
-// By default, go-future uses the standard Go goroutines (executors.GoExecutor{}) to execute tasks.
-// This provides lightweight asynchronous execution without pooling or concurrency limits.
+// 默认情况下，go-future 使用标准 Go goroutines（executors.GoExecutor{}）来执行任务。
+// 这提供了轻量级的异步执行，没有池化或并发限制。
 //
-// You can override the default executor using any implementation of the Executor interface with SetExecutor.
-// A common pattern is to use ExecutorFunc to wrap a goroutine pool, for example:
+// 您可以使用 SetExecutor 通过 Executor 接口的任何实现来覆盖默认执行器。
+// 常见的模式是使用 ExecutorFunc 来包装 goroutine 池，例如：
 //
 //	pool := ants.NewPool(100)
 //	SetExecutor(ExecutorFunc(func(f func()) {
 //	    pool.Submit(f)
 //	}))
 //
-// Most cases do NOT require changing the executor. Replacing the default executor can be useful
-// to limit concurrency, reuse goroutines, or reduce GC pressure.
+// 大多数情况下不需要更改执行器。替换默认执行器可用于限制并发、重用 goroutine 或减少 GC 压力。
 //
-// Caution:
-//   - For RPC tasks or other potentially blocking operations, using a pooled executor may
-//     cause task queuing and negative performance impact. Only override the executor if you
-//     understand the workload and have performed thorough performance testing.
-//   - Passing nil to SetExecutor will panic.
+// 警告：
+//   - 对于 RPC 任务或其他可能阻塞的操作，使用池化执行器可能会导致任务排队和性能下降。
+//     只有在了解工作负载并进行了彻底的性能测试后，才应覆盖执行器。
+//   - 向 SetExecutor 传递 nil 会 panic。
 type Executor interface {
 	Submit(func())
 }

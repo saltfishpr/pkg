@@ -17,6 +17,7 @@ type state[T any] struct {
 
 	state atomic.Uint32
 	done  chan struct{}
+	once  sync.Once
 
 	val T
 	err error
@@ -24,10 +25,10 @@ type state[T any] struct {
 	stack unsafe.Pointer // *callback[T]
 }
 
-func newState[T any]() *state[T] {
-	return &state[T]{
-		done: make(chan struct{}),
-	}
+func (s *state[T]) lazyInit() {
+	s.once.Do(func() {
+		s.done = make(chan struct{})
+	})
 }
 
 func (s *state[T]) set(val T, err error) bool {
@@ -38,6 +39,7 @@ func (s *state[T]) set(val T, err error) bool {
 	s.err = err
 
 	s.state.CompareAndSwap(stateDoing, stateDone)
+	s.lazyInit()
 	close(s.done)
 
 	// execute all callbacks
@@ -60,6 +62,7 @@ func (s *state[T]) get() (T, error) {
 	if s.isDone() {
 		return s.val, s.err
 	}
+	s.lazyInit()
 	<-s.done
 	return s.val, s.err
 }
@@ -107,15 +110,13 @@ func (cb *callback[T]) execOnce(val T, err error) {
 	})
 }
 
-// noCopy may be added to structs which must not be copied
-// after the first use.
+// noCopy 可以添加到首次使用后不得被复制的结构体中。
 //
-// See https://golang.org/issues/8005#issuecomment-190753527
-// for details.
+// 详情请参见：https://golang.org/issues/8005#issuecomment-190753527
 //
-// Note that it must not be embedded, due to the Lock and Unlock methods.
+// 注意：由于 Lock 和 Unlock 方法，不得嵌入此结构体。
 type noCopy struct{}
 
-// Lock is a no-op used by -copylocks checker from `go vet`.
+// Lock 是一个空操作，由 `go vet` 的 -copylocks 检查器使用。
 func (*noCopy) Lock()   {}
 func (*noCopy) Unlock() {}
