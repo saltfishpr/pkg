@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/saltfishpr/pkg/compare/v0.7.0...v0.8.0) (2026-02-13)
+
+
+### Features
+
+* upgrade dependencies and add docs ([1feab9f](https://github.com/saltfishpr/pkg/commit/1feab9f2940f4161e6b22ac7d6c56674f455596c))
+
 ## [0.7.0](https://github.com/saltfishpr/pkg/compare/v0.6.0...v0.7.0) (2026-02-13)
 
 
