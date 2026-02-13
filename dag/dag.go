@@ -1,41 +1,17 @@
-// Package dag 提供了一个有向无环图（DAG）的实现，支持节点的并发执行、子图嵌套和自定义拦截器。
+// Package dag 提供了一个有向无环图（DAG）执行引擎。
 //
-// # 使用流程
+// DAG 允许你定义由多个节点及其依赖关系组成的任务图，引擎会自动处理并行执行、
+// 依赖管理和错误传播。支持嵌套子图、节点拦截器、自定义执行器等高级特性。
 //
-//  1. 创建 DAG：使用 NewDAG() 创建一个新的 DAG，指定入口节点 ID
-//  2. 添加节点：使用 AddNode() 或 AddSubGraph() 添加节点
-//  3. 冻结 DAG：调用 Freeze() 进行验证（检查完整性和循环）
-//  4. 创建实例：使用 Instantiate() 为 DAG 创建可执行实例
-//  5. 运行实例：调用 Run() 或 RunAsync() 执行 DAG
+// 基本用法：
 //
-// # 示例
-//
-//	dag := dag.NewDAG("entry")
-//	dag.AddNode("node1", []dag.NodeID{"entry"}, func(ctx context.Context, deps map[dag.NodeID]any) (any, error) {
-//		return "result1", nil
+//	d := dag.NewDAG("entry")
+//	d.AddNode("double", []dag.NodeID{"entry"}, func(ctx context.Context, deps map[dag.NodeID]any) (any, error) {
+//	    return deps["entry"].(int) * 2, nil
 //	})
-//	dag.AddNode("node2", []dag.NodeID{"node1"}, func(ctx context.Context, deps map[dag.NodeID]any) (any, error) {
-//		return "result2", nil
-//	})
-//	if err := dag.Freeze(); err != nil {
-//		log.Fatal(err)
-//	}
-//
-//	instance, err := dag.Instantiate("entry_value")
-//	if err != nil {
-//		log.Fatal(err)
-//	}
-//	results, err := instance.Run(context.Background())
-//	if err != nil {
-//		log.Fatal(err)
-//	}
-//
-// # 高级特性
-//
-//   - 子图：通过 AddSubGraph() 支持 DAG 的嵌套和模块化。
-//   - 并发执行：所有无依赖关系的节点会自动并发执行。
-//   - Mermaid 图形化：调用 ToMermaid() 生成 Mermaid 格式的 DAG 图表。
-//   - 拦截器：使用 WithNodeFuncInterceptor() 为节点执行添加日志、监控等功能。
+//	d.Freeze()
+//	instance, _ := d.Instantiate(5)
+//	results, _ := instance.Run(context.Background())
 package dag
 
 import (
@@ -57,16 +33,22 @@ var (
 	ErrDAGNotFrozen  = errors.New("DAG is not frozen")
 	ErrDAGIncomplete = errors.New("DAG is incomplete")
 	ErrDAGCyclic     = errors.New("DAG has cycle")
-	// ErrNodeSkipped 表示节点执行被跳过。
-	ErrNodeSkipped = errors.New("DAG node is skipped")
+	ErrNodeSkipped   = errors.New("DAG node is skipped")
 )
 
+// NodeID 表示 DAG 中节点的唯一标识符。
 type NodeID string
 
+// NodeFunc 是节点执行函数的类型定义。
+// 接收 context 和依赖节点结果映射，返回当前节点的结果或错误。
 type NodeFunc func(ctx context.Context, deps map[NodeID]any) (any, error)
 
+// NodeFuncInterceptor 用于拦截和包装节点执行函数。
+// 可以用于日志记录、性能监控、错误处理等横切关注点。
+// 拦截器按添加顺序的逆序执行（类似中间件链）。
 type NodeFuncInterceptor func(next NodeFunc) NodeFunc
 
+// Node 表示 DAG 中的一个节点。
 type Node interface {
 	ID() NodeID
 	Deps() []NodeID
@@ -96,12 +78,15 @@ type SubDAGNode struct {
 	inputMapping  func(map[NodeID]any) any
 	outputMapping func(map[NodeID]any) any
 }
+
+// DAG 是有向无环图的核心结构，用于定义任务及其依赖关系。
 type DAG struct {
 	entry  NodeID
 	nodes  map[NodeID]Node
 	frozen bool
 }
 
+// NewDAG 创建一个新的 DAG，并指定入口节点 ID。
 func NewDAG(entry NodeID) *DAG {
 	dag := &DAG{
 		nodes: make(map[NodeID]Node),
@@ -115,6 +100,7 @@ func NewDAG(entry NodeID) *DAG {
 	return dag
 }
 
+// AddNode 向 DAG 中添加一个简单节点。
 func (d *DAG) AddNode(id NodeID, deps []NodeID, fn NodeFunc) error {
 	if d.frozen {
 		return ErrDAGFrozen
@@ -132,6 +118,7 @@ func (d *DAG) AddNode(id NodeID, deps []NodeID, fn NodeFunc) error {
 	return nil
 }
 
+// AddSubGraph 向 DAG 中添加一个子图节点。
 func (d *DAG) AddSubGraph(
 	id NodeID, deps []NodeID, subDag *DAG,
 	inputMapping func(map[NodeID]any) any,
@@ -155,6 +142,9 @@ func (d *DAG) AddSubGraph(
 	return nil
 }
 
+// Freeze 冻结 DAG，验证其完整性和无环性。
+// 冻结后不能再添加节点或子图。
+// 必须在 Instantiate 之前调用。
 func (d *DAG) Freeze() error {
 	if d.frozen {
 		return ErrDAGFrozen
@@ -224,6 +214,8 @@ func (d *DAG) checkCycle() error {
 	return nil
 }
 
+// ToMermaid 生成 DAG 的 Mermaid 流程图表示。
+// 仅在 DAG 冻结后可用。
 func (d *DAG) ToMermaid() string {
 	if !d.frozen {
 		return ""
@@ -268,35 +260,39 @@ func (d *DAG) toMermaid(b *strings.Builder, prefix string, indent string) {
 }
 
 type instantiateOptions struct {
-	// executor 用于执行 DAG 实例中的节点
-	executor future.Executor
-	// interceptors 用来包装节点的执行函数，可以用于日志、监控等场景
+	executor     future.Executor
 	interceptors []NodeFuncInterceptor
-	// nodeResults 预设的节点结果
-	nodeResults map[NodeID]any
+	nodeResults  map[NodeID]any
 }
 
+// InstantiateOption 是用于配置 DAG 实例的选项函数类型。
 type InstantiateOption func(*instantiateOptions)
 
+// WithExecutor 设置 DAG 实例使用的执行器。
+// 默认使用 GoExecutor（基于 goroutine 的并发执行）。
 func WithExecutor(executor future.Executor) InstantiateOption {
 	return func(opts *instantiateOptions) {
 		opts.executor = executor
 	}
 }
 
+// WithNodeFuncInterceptor 添加节点函数拦截器。
+// 可添加多个拦截器，按添加顺序的逆序执行。
 func WithNodeFuncInterceptor(interceptor NodeFuncInterceptor) InstantiateOption {
 	return func(opts *instantiateOptions) {
 		opts.interceptors = append(opts.interceptors, interceptor)
 	}
 }
 
+// WithNodeResults 预设节点结果，用于跳过特定节点的执行。
 func WithNodeResults(results map[NodeID]any) InstantiateOption {
 	return func(opts *instantiateOptions) {
 		opts.nodeResults = results
 	}
 }
 
-// Instantiate 创建 DAG 的一个实例。
+// Instantiate 创建 DAG 的可执行实例。
+// 返回的 DAGInstance 可多次执行，每次执行都是独立的。
 func (d *DAG) Instantiate(input any, options ...InstantiateOption) (*DAGInstance, error) {
 	if !d.frozen {
 		return nil, ErrDAGNotFrozen
@@ -407,6 +403,8 @@ type NodeInstance struct {
 	endTime   time.Time
 }
 
+// DAGInstance 是 DAG 的可执行实例。
+// 每个实例维护独立的执行状态，可多次运行。
 type DAGInstance struct {
 	spec  *DAG
 	nodes map[NodeID]*NodeInstance
@@ -414,10 +412,12 @@ type DAGInstance struct {
 	executor future.Executor
 }
 
+// Run 同步执行 DAG 实例，返回所有节点的执行结果。
 func (d *DAGInstance) Run(ctx context.Context) (map[NodeID]any, error) {
 	return d.RunAsync(ctx).Get()
 }
 
+// RunAsync 异步执行 DAG 实例，返回一个 Future。
 func (d *DAGInstance) RunAsync(ctx context.Context) *future.Future[map[NodeID]any] {
 	d.runNode(ctx, d.spec.entry)
 	futures := make([]*future.Future[any], 0, len(d.nodes))
