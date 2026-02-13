@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.7.0](https://github.com/saltfishpr/pkg/compare/v0.6.0...v0.7.0) (2026-02-13)
+
+
+### Features
+
+* add cache package ([a394aeb](https://github.com/saltfishpr/pkg/commit/a394aeb190b3ecd7f026adc8a1b76b87fb696a12))
+* add LRU local cache ([f8422c2](https://github.com/saltfishpr/pkg/commit/f8422c213a5e2c6ee6ee8b242e981a64318b88cc))
+* add recoverd type ([7b3fe66](https://github.com/saltfishpr/pkg/commit/7b3fe665a753609d66f08532733eacb5dd2db871))
+* update future pkg ([2853c7b](https://github.com/saltfishpr/pkg/commit/2853c7bd028da670f39c574f78b8b9e87b0b91d4))
+
 ## [0.6.0](https://github.com/saltfishpr/pkg/compare/v0.5.0...v0.6.0) (2026-01-15)
 
 
