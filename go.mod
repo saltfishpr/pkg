@@ -7,7 +7,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/goleak v1.2.1
 	golang.org/x/text v0.22.0
-	gorm.io/gorm v1.26.1
+	gorm.io/gorm v1.30.5
 )
 
 require (
