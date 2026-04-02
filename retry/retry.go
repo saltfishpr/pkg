@@ -1,3 +1,26 @@
+// Package retry provides a generic retry loop with pluggable back-off
+// strategies and context-aware cancellation.
+//
+// Basic usage:
+//
+//	result, err := retry.Do(ctx, func() (string, error) {
+//	    return apiCall()
+//	})
+//
+// With options:
+//
+//	result, err := retry.Do(ctx, f,
+//	    retry.WithMaxAttempts(5),
+//	    retry.WithRetryStrategy(retry.ExponentialBackoff(100*time.Millisecond, time.Second)),
+//	    retry.WithShouldRetryFunc(func(err error) bool {
+//	        return isTransientError(err)
+//	    }),
+//	)
+//
+// Built-in back-off strategies:
+//   - [FixedBackoff]: constant delay between retries.
+//   - [LinearBackoff]: linearly increasing delay.
+//   - [ExponentialBackoff]: exponential increase capped at a maximum.
 package retry
 
 import (
@@ -5,44 +28,46 @@ import (
 	"time"
 )
 
+// retryOptions holds the resolved configuration for a [Do] call.
 type retryOptions struct {
 	maxAttempts   int
 	retryStrategy RetryStrategy
 	shouldRetry   func(err error) bool
 }
 
-// RetryOption 配置 Do 函数的重试行为。
+// RetryOption configures the retry behavior of [Do].
 type RetryOption func(*retryOptions)
 
-// WithMaxAttempts 设置最大重试次数（包括首次尝试）。
-// 默认为 3 次。
+// WithMaxAttempts sets the total number of attempts (initial call + retries).
+// The default is 3.
 func WithMaxAttempts(maxAttempts int) RetryOption {
 	return func(opts *retryOptions) {
 		opts.maxAttempts = maxAttempts
 	}
 }
 
-// WithRetryStrategy 设置重试的退避策略。
-// 默认为 100ms 的固定退避。
+// WithRetryStrategy sets the back-off strategy between attempts.
+// The default is a 100 ms fixed back-off.
 func WithRetryStrategy(strategy RetryStrategy) RetryOption {
 	return func(opts *retryOptions) {
 		opts.retryStrategy = strategy
 	}
 }
 
-// WithShouldRetryFunc 设置判断函数，决定是否应该重试某个错误。
-// 返回 false 会立即终止重试并返回该错误。
-// 默认会对所有错误进行重试。
+// WithShouldRetryFunc registers a predicate that decides whether a given
+// error is retryable. Returning false short-circuits the loop immediately.
+// The default retries on every error.
 func WithShouldRetryFunc(fn func(err error) bool) RetryOption {
 	return func(opts *retryOptions) {
 		opts.shouldRetry = fn
 	}
 }
 
-// Do 执行函数 f，失败时按配置的策略重试。
+// Do calls f up to maxAttempts times, pausing between failures according to
+// the configured [RetryStrategy].
 //
-// 支持通过 context 取消重试；会在每次尝试前和等待期间检查 ctx 状态。
-// 如果 f 返回 nil error，立即返回结果；否则根据配置决定是否重试。
+// Before each attempt and during the back-off wait, ctx is checked for
+// cancellation. If f returns a nil error, its result is returned immediately.
 func Do[T any](ctx context.Context, f func() (T, error), options ...RetryOption) (T, error) {
 	opts := retryOptions{
 		maxAttempts:   3,
@@ -58,7 +83,6 @@ func Do[T any](ctx context.Context, f func() (T, error), options ...RetryOption)
 	var zero T
 	var lastErr error
 	for attempt := 0; attempt < opts.maxAttempts; attempt++ {
-		// 每次尝试前检查 Context，避免已取消时仍执行函数
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
@@ -73,7 +97,6 @@ func Do[T any](ctx context.Context, f func() (T, error), options ...RetryOption)
 			break
 		}
 
-		// 最后一次尝试失败后无需等待，直接退出
 		if attempt == opts.maxAttempts-1 {
 			break
 		}

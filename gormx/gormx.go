@@ -1,3 +1,7 @@
+// Package gormx extends the GORM ORM framework with:
+//   - Transparent field-level encryption via [SecureString].
+//   - Context-propagated transaction management via [OnceTransactionRepo].
+//   - A minimal [BaseRepo] helper for common repository operations.
 package gormx
 
 import (
@@ -7,36 +11,42 @@ import (
 	"gorm.io/gorm"
 )
 
-// BaseRepo 是 Repository 的基础类型,提供通用的仓储操作。
+// BaseRepo provides convenience helpers common to all repositories.
 type BaseRepo struct{}
 
-// NewBaseRepo 创建一个新的 BaseRepo 实例。
+// NewBaseRepo creates a new [BaseRepo].
 func NewBaseRepo() *BaseRepo {
 	return &BaseRepo{}
 }
 
-// IsNotFoundError 判断 err 是否为 gorm.ErrRecordNotFound 错误。
+// IsNotFoundError reports whether err is [gorm.ErrRecordNotFound].
 func (r *BaseRepo) IsNotFoundError(err error) bool {
 	return errors.Is(err, gorm.ErrRecordNotFound)
 }
 
+// ctxKey is a private type used as context-value keys to avoid collisions.
 type ctxKey string
 
-const (
-	// CtxKeyMySQLTransaction 是 context 中存储 MySQL 事务的键。
-	CtxKeyMySQLTransaction ctxKey = "mysql_transaction"
-)
+// CtxKeyMySQLTransaction is the default context key for storing a MySQL
+// transaction. Pass a custom key to [NewOnceTransactionRepo] if you need
+// multiple independent transaction scopes.
+const CtxKeyMySQLTransaction ctxKey = "mysql_transaction"
 
-// OnceTransactionRepo 提供基于 context 的事务管理。
-// 它确保事务在同一个 context 中只创建一次,实现事务传播。
-// 如果 context 中已存在事务,则复用该事务;否则创建新事务。
+// OnceTransactionRepo implements context-based transaction propagation.
+//
+// When [OnceTransactionRepo.Transaction] is called, it checks whether the
+// context already carries a transaction (stored under key). If so, fn runs
+// inside the existing transaction; otherwise a new transaction is started.
+// This lets nested service calls share a single database transaction without
+// explicit plumbing.
 type OnceTransactionRepo struct {
 	db  *gorm.DB
 	key ctxKey
 }
 
-// NewOnceTransactionRepo 创建一个新的 OnceTransactionRepo 实例。
-// db 是底层数据库连接,key 是用于在 context 中存储事务的键。
+// NewOnceTransactionRepo creates a new [OnceTransactionRepo].
+// db is the underlying database connection and key is the context key under
+// which the active transaction is stored.
 func NewOnceTransactionRepo(db *gorm.DB, key ctxKey) *OnceTransactionRepo {
 	return &OnceTransactionRepo{
 		db:  db,
@@ -44,8 +54,8 @@ func NewOnceTransactionRepo(db *gorm.DB, key ctxKey) *OnceTransactionRepo {
 	}
 }
 
-// DB 返回一个与 context 绑定的 gorm.DB 实例。
-// 如果 context 中已存在事务,返回事务 DB;否则返回普通 DB。
+// DB returns a [gorm.DB] bound to ctx. If ctx carries an active transaction
+// it is reused; otherwise a plain session is returned.
 func (r *OnceTransactionRepo) DB(ctx context.Context) *gorm.DB {
 	if db, ok := ctx.Value(r.key).(*gorm.DB); ok {
 		return db
@@ -53,9 +63,10 @@ func (r *OnceTransactionRepo) DB(ctx context.Context) *gorm.DB {
 	return r.db.WithContext(ctx)
 }
 
-// Transaction 在事务中执行 fn 函数。
-// 如果 context 中已存在事务,则在现有事务中执行;否则创建新事务。
-// fn 返回 error 时事务回滚,否则提交。
+// Transaction executes fn inside a database transaction. If a transaction
+// is already present in ctx it is reused (nested call); otherwise a new one
+// is created. The transaction commits when fn returns nil, or rolls back on
+// error.
 func (r *OnceTransactionRepo) Transaction(ctx context.Context, fn func(ctx context.Context) error) error {
 	if fn == nil {
 		panic("fn cannot be nil")
@@ -72,10 +83,8 @@ func (r *OnceTransactionRepo) Transaction(ctx context.Context, fn func(ctx conte
 	})
 }
 
-// TransactionResult 在事务中执行 fn 函数并返回结果。
-// 如果 context 中已存在事务,则在现有事务中执行;否则创建新事务。
-// fn 返回 error 时事务回滚,否则提交。
-// 返回 fn 的执行结果和可能的错误。
+// TransactionResult is like [OnceTransactionRepo.Transaction] but also
+// returns a result value from fn.
 func (r *OnceTransactionRepo) TransactionResult(ctx context.Context, fn func(ctx context.Context) (any, error)) (any, error) {
 	if fn == nil {
 		panic("fn cannot be nil")

@@ -10,15 +10,17 @@ import (
 	"github.com/saltfishpr/pkg/crypto"
 )
 
+// ctxKeyCryptoKey is a private, pointer-addressed context key for the AES
+// encryption key, avoiding string-based key collisions.
 var ctxKeyCryptoKey int
 
-// WithCryptoKey 向 context 中存入加密密钥。
+// WithCryptoKey stores an AES encryption key in ctx for use by [SecureString]
+// during GORM Scan/Value operations.
 func WithCryptoKey(ctx context.Context, key []byte) context.Context {
 	return context.WithValue(ctx, &ctxKeyCryptoKey, key)
 }
 
-// GetCryptoKey 从 context 中获取加密密钥。
-// 如果未设置密钥,返回 nil。
+// GetCryptoKey retrieves the AES key from ctx, or nil if none is set.
 func GetCryptoKey(ctx context.Context) []byte {
 	if key, ok := ctx.Value(&ctxKeyCryptoKey).([]byte); ok {
 		return key
@@ -26,14 +28,19 @@ func GetCryptoKey(ctx context.Context) []byte {
 	return nil
 }
 
-// SecureString 实现了 [schema.SerializerInterface],透明地加密/解密字符串值。
-// 用作数据库字段类型时,写入时自动加密,读取时自动解密。
-// 通过 WithCryptoKey 设置的密钥进行加解密;未设置密钥则按明文处理。
+// SecureString is a string type that transparently encrypts on write and
+// decrypts on read when used as a GORM model field via the serializer
+// interface ([schema.SerializerInterface]).
+//
+// Encryption uses AES-GCM through the [crypto.Cryptor] obtained from the
+// context key set by [WithCryptoKey]. If no key is present, the value is
+// stored and retrieved as plain text.
 type SecureString string
 
 var _ schema.SerializerInterface = (*SecureString)(nil)
 
-// Scan 实现 schema.SerializerInterface 接口,从数据库读取数据并解密。
+// Scan implements [schema.SerializerInterface]. It reads a database value
+// and decrypts it if a crypto key is present in ctx.
 func (s *SecureString) Scan(ctx context.Context, field *schema.Field, dst reflect.Value, dbValue interface{}) error {
 	if dbValue == nil {
 		return nil
@@ -65,7 +72,8 @@ func (s *SecureString) Scan(ctx context.Context, field *schema.Field, dst reflec
 	return nil
 }
 
-// Value 实现 schema.SerializerInterface 接口,加密数据并写入数据库。
+// Value implements [schema.SerializerInterface]. It encrypts the field value
+// before writing to the database if a crypto key is present in ctx.
 func (*SecureString) Value(ctx context.Context, field *schema.Field, dst reflect.Value, fieldValue interface{}) (interface{}, error) {
 	val, ok := fieldValue.(SecureString)
 	if !ok {

@@ -1,9 +1,13 @@
-// Package dag 提供了一个有向无环图（DAG）执行引擎。
+// Package dag provides a directed acyclic graph (DAG) execution engine.
 //
-// DAG 允许你定义由多个节点及其依赖关系组成的任务图，引擎会自动处理并行执行、
-// 依赖管理和错误传播。支持嵌套子图、节点拦截器、自定义执行器等高级特性。
+// A DAG defines a task graph where each node is a function that depends on
+// the results of upstream nodes. The engine handles parallel scheduling,
+// dependency resolution, and error propagation automatically.
 //
-// 基本用法：
+// Advanced features include nested sub-graphs, node-function interceptors
+// (middleware), pluggable executors, and Mermaid diagram generation.
+//
+// Basic usage:
 //
 //	d := dag.NewDAG("entry")
 //	d.AddNode("double", []dag.NodeID{"entry"}, func(ctx context.Context, deps map[dag.NodeID]any) (any, error) {
@@ -27,6 +31,7 @@ import (
 	"github.com/saltfishpr/pkg/future/executors"
 )
 
+// Sentinel errors returned by DAG construction and execution methods.
 var (
 	ErrDAGNodeExists = errors.New("DAG node already exists")
 	ErrDAGFrozen     = errors.New("DAG is frozen")
@@ -36,19 +41,20 @@ var (
 	ErrNodeSkipped   = errors.New("DAG node is skipped")
 )
 
-// NodeID 表示 DAG 中节点的唯一标识符。
+// NodeID uniquely identifies a node within a DAG.
 type NodeID string
 
-// NodeFunc 是节点执行函数的类型定义。
-// 接收 context 和依赖节点结果映射，返回当前节点的结果或错误。
+// NodeFunc is the signature of a node's execution function.
+// It receives a context and a map of dependency results keyed by [NodeID],
+// and returns this node's result or an error.
 type NodeFunc func(ctx context.Context, deps map[NodeID]any) (any, error)
 
-// NodeFuncInterceptor 用于拦截和包装节点执行函数。
-// 可以用于日志记录、性能监控、错误处理等横切关注点。
-// 拦截器按添加顺序的逆序执行（类似中间件链）。
+// NodeFuncInterceptor wraps a [NodeFunc] to add cross-cutting behavior
+// such as logging, metrics, or error handling. Multiple interceptors are
+// applied in reverse registration order, forming a middleware chain.
 type NodeFuncInterceptor func(next NodeFunc) NodeFunc
 
-// Node 表示 DAG 中的一个节点。
+// Node is the interface satisfied by every node variant in the DAG.
 type Node interface {
 	ID() NodeID
 	Deps() []NodeID
@@ -63,15 +69,19 @@ func (n *baseNode) ID() NodeID { return n.id }
 
 func (n *baseNode) Deps() []NodeID { return n.deps }
 
+// EntryNode is the root node of a DAG that receives the initial input value.
 type EntryNode struct {
 	baseNode
 }
 
+// SimpleNode is a leaf or intermediate node backed by a [NodeFunc].
 type SimpleNode struct {
 	baseNode
 	run NodeFunc
 }
 
+// SubDAGNode embeds a frozen child [DAG] as a single node, optionally
+// transforming inputs and outputs through mapping functions.
 type SubDAGNode struct {
 	baseNode
 	subDag        *DAG
@@ -79,14 +89,17 @@ type SubDAGNode struct {
 	outputMapping func(map[NodeID]any) any
 }
 
-// DAG 是有向无环图的核心结构，用于定义任务及其依赖关系。
+// DAG is the core directed acyclic graph definition. Nodes and edges are
+// added before calling [DAG.Freeze], after which the DAG becomes immutable
+// and can be instantiated for execution.
 type DAG struct {
 	entry  NodeID
 	nodes  map[NodeID]Node
 	frozen bool
 }
 
-// NewDAG 创建一个新的 DAG，并指定入口节点 ID。
+// NewDAG creates a new DAG with the given entry node ID. The entry node is
+// automatically registered and receives the input value at instantiation.
 func NewDAG(entry NodeID) *DAG {
 	dag := &DAG{
 		nodes: make(map[NodeID]Node),
@@ -100,7 +113,9 @@ func NewDAG(entry NodeID) *DAG {
 	return dag
 }
 
-// AddNode 向 DAG 中添加一个简单节点。
+// AddNode registers a [SimpleNode] backed by fn with the given dependencies.
+// It returns [ErrDAGFrozen] if the DAG has been frozen, or [ErrDAGNodeExists]
+// if a node with the same id already exists.
 func (d *DAG) AddNode(id NodeID, deps []NodeID, fn NodeFunc) error {
 	if d.frozen {
 		return ErrDAGFrozen
@@ -118,7 +133,10 @@ func (d *DAG) AddNode(id NodeID, deps []NodeID, fn NodeFunc) error {
 	return nil
 }
 
-// AddSubGraph 向 DAG 中添加一个子图节点。
+// AddSubGraph registers a [SubDAGNode] that embeds a child DAG.
+// inputMapping transforms the parent dependency map into the child's entry
+// value; outputMapping transforms the child's result map into the parent
+// node's output. Either mapping may be nil for pass-through behavior.
 func (d *DAG) AddSubGraph(
 	id NodeID, deps []NodeID, subDag *DAG,
 	inputMapping func(map[NodeID]any) any,
@@ -142,9 +160,9 @@ func (d *DAG) AddSubGraph(
 	return nil
 }
 
-// Freeze 冻结 DAG，验证其完整性和无环性。
-// 冻结后不能再添加节点或子图。
-// 必须在 Instantiate 之前调用。
+// Freeze validates the DAG for completeness (no dangling deps) and acyclicity
+// (topological sort), then marks it as immutable. Sub-graphs are frozen
+// recursively. It must be called before [DAG.Instantiate].
 func (d *DAG) Freeze() error {
 	if d.frozen {
 		return ErrDAGFrozen
@@ -166,6 +184,8 @@ func (d *DAG) Freeze() error {
 	return nil
 }
 
+// checkComplete verifies that every declared dependency references an
+// existing node.
 func (d *DAG) checkComplete() error {
 	for id, node := range d.nodes {
 		for _, dep := range node.Deps() {
@@ -177,6 +197,7 @@ func (d *DAG) checkComplete() error {
 	return nil
 }
 
+// checkCycle uses Kahn's algorithm (topological sort) to detect cycles.
 func (d *DAG) checkCycle() error {
 	inDegree := make(map[NodeID]int)
 	queue := make([]NodeID, 0)
@@ -214,8 +235,8 @@ func (d *DAG) checkCycle() error {
 	return nil
 }
 
-// ToMermaid 生成 DAG 的 Mermaid 流程图表示。
-// 仅在 DAG 冻结后可用。
+// ToMermaid generates a Mermaid flowchart string representing the DAG.
+// It returns an empty string if the DAG has not been frozen.
 func (d *DAG) ToMermaid() string {
 	if !d.frozen {
 		return ""
@@ -259,40 +280,44 @@ func (d *DAG) toMermaid(b *strings.Builder, prefix string, indent string) {
 	}
 }
 
+// instantiateOptions holds the resolved configuration for [DAG.Instantiate].
 type instantiateOptions struct {
 	executor     future.Executor
 	interceptors []NodeFuncInterceptor
 	nodeResults  map[NodeID]any
 }
 
-// InstantiateOption 是用于配置 DAG 实例的选项函数类型。
+// InstantiateOption configures a [DAGInstance] created by [DAG.Instantiate].
 type InstantiateOption func(*instantiateOptions)
 
-// WithExecutor 设置 DAG 实例使用的执行器。
-// 默认使用 GoExecutor（基于 goroutine 的并发执行）。
+// WithExecutor sets the task executor for the instance.
+// The default is [executors.GoExecutor] which runs each node in a new goroutine.
 func WithExecutor(executor future.Executor) InstantiateOption {
 	return func(opts *instantiateOptions) {
 		opts.executor = executor
 	}
 }
 
-// WithNodeFuncInterceptor 添加节点函数拦截器。
-// 可添加多个拦截器，按添加顺序的逆序执行。
+// WithNodeFuncInterceptor appends an interceptor to the chain.
+// Interceptors execute in reverse registration order (last registered runs
+// outermost), similar to HTTP middleware.
 func WithNodeFuncInterceptor(interceptor NodeFuncInterceptor) InstantiateOption {
 	return func(opts *instantiateOptions) {
 		opts.interceptors = append(opts.interceptors, interceptor)
 	}
 }
 
-// WithNodeResults 预设节点结果，用于跳过特定节点的执行。
+// WithNodeResults pre-populates node results, causing those nodes to be
+// skipped during execution.
 func WithNodeResults(results map[NodeID]any) InstantiateOption {
 	return func(opts *instantiateOptions) {
 		opts.nodeResults = results
 	}
 }
 
-// Instantiate 创建 DAG 的可执行实例。
-// 返回的 DAGInstance 可多次执行，每次执行都是独立的。
+// Instantiate creates an executable [DAGInstance] from a frozen DAG.
+// input is passed to the entry node. The returned instance is independent
+// and may be run concurrently with other instances of the same DAG.
 func (d *DAG) Instantiate(input any, options ...InstantiateOption) (*DAGInstance, error) {
 	if !d.frozen {
 		return nil, ErrDAGNotFrozen
@@ -348,10 +373,12 @@ func (d *DAG) Instantiate(input any, options ...InstantiateOption) (*DAGInstance
 	}, nil
 }
 
+// createNodeRunFunc builds the [NodeFunc] for a given node spec. Nodes with
+// pre-populated results return them immediately; sub-DAG nodes instantiate
+// and run their child DAG.
 func (d *DAG) createNodeRunFunc(spec Node, results map[NodeID]any, options []InstantiateOption, node *NodeInstance) NodeFunc {
 	result, ok := results[spec.ID()]
 	if ok {
-		// 节点已经有值，直接返回
 		return func(_ context.Context, _ map[NodeID]any) (any, error) { return result, nil }
 	}
 
@@ -387,6 +414,9 @@ func (d *DAG) createNodeRunFunc(spec Node, results map[NodeID]any, options []Ins
 	}
 }
 
+// NodeInstance is the runtime representation of a single node within a
+// [DAGInstance]. It tracks pending dependencies, execution timing, and
+// the eventual result via a [future.Promise].
 type NodeInstance struct {
 	spec Node
 
@@ -403,8 +433,9 @@ type NodeInstance struct {
 	endTime   time.Time
 }
 
-// DAGInstance 是 DAG 的可执行实例。
-// 每个实例维护独立的执行状态，可多次运行。
+// DAGInstance is a ready-to-run snapshot of a frozen [DAG] with a specific
+// input. Each instance maintains its own execution state and may be run
+// independently.
 type DAGInstance struct {
 	spec  *DAG
 	nodes map[NodeID]*NodeInstance
@@ -412,12 +443,13 @@ type DAGInstance struct {
 	executor future.Executor
 }
 
-// Run 同步执行 DAG 实例，返回所有节点的执行结果。
+// Run synchronously executes the DAG and returns all node results.
 func (d *DAGInstance) Run(ctx context.Context) (map[NodeID]any, error) {
 	return d.RunAsync(ctx).Get()
 }
 
-// RunAsync 异步执行 DAG 实例，返回一个 Future。
+// RunAsync starts the DAG execution asynchronously and returns a [future.Future]
+// that will resolve to the complete result map.
 func (d *DAGInstance) RunAsync(ctx context.Context) *future.Future[map[NodeID]any] {
 	d.runNode(ctx, d.spec.entry)
 	futures := make([]*future.Future[any], 0, len(d.nodes))
@@ -444,6 +476,9 @@ func (d *DAGInstance) RunAsync(ctx context.Context) *future.Future[map[NodeID]an
 	)
 }
 
+// runNode submits a node for asynchronous execution. Once the node completes,
+// it decrements the pending count of all children and triggers any child
+// whose dependencies are fully satisfied.
 func (d *DAGInstance) runNode(ctx context.Context, id NodeID) {
 	node := d.nodes[id]
 	node.startTime = time.Now()
