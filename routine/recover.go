@@ -57,13 +57,29 @@ type RecoveredError struct {
 // Error returns a human-readable message containing the panic value and
 // the stack trace.
 func (e *RecoveredError) Error() string {
-	return fmt.Sprintf("panic: %v\nstacktrace:%+v", e.Value, e.StackTrace())
+	return fmt.Sprintf("[PANIC] %v%+v", e.Value, e.StackTrace())
+}
+
+// Unwrap returns the panic value when it is an error.
+func (e *RecoveredError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	if err, ok := e.Value.(error); ok {
+		return err
+	}
+	return nil
 }
 
 // StackTrace returns a [errors.StackTrace] suitable for %+v formatting.
 func (e *RecoveredError) StackTrace() errors.StackTrace {
 	if e == nil {
 		return nil
+	}
+	if err := e.Unwrap(); err != nil {
+		if tracer, ok := err.(interface{ StackTrace() errors.StackTrace }); ok {
+			return tracer.StackTrace()
+		}
 	}
 	frames := make([]errors.Frame, len(e.Callers))
 	for i, pc := range e.Callers {

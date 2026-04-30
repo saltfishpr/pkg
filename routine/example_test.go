@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/saltfishpr/pkg/routine"
 )
 
@@ -115,4 +116,24 @@ func ExampleNewRecovered() {
 	}()
 
 	panic("手动触发 panic")
+}
+
+func ExampleNewRecovered_errorStackTrace() {
+	original := errors.New("boom")
+
+	defer func() {
+		if r := recover(); r != nil {
+			recovered := routine.NewRecovered(1, r)
+			err := recovered.AsError()
+			got := fmt.Sprintf("%+v", err)
+			want := fmt.Sprintf("[PANIC] %+v", original)
+
+			fmt.Println(got == want)
+		}
+	}()
+
+	panic(original)
+
+	// Output:
+	// true
 }
