@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/saltfishpr/pkg/compare/v0.8.0...v0.9.0) (2026-04-30)
+
+
+### Features
+
+* routine ([2206275](https://github.com/saltfishpr/pkg/commit/22062753c3bacd25c7a9bfa9d4e37c1969e69bba))
+
 ## [0.8.0](https://github.com/saltfishpr/pkg/compare/v0.7.0...v0.8.0) (2026-02-13)
 
 
