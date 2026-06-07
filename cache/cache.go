@@ -8,6 +8,7 @@
 package cache
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 
@@ -16,9 +17,9 @@ import (
 
 // Cache is a minimal byte-level key-value cache abstraction.
 type Cache interface {
-	Set(key string, value []byte) error
-	Get(key string) ([]byte, error)
-	Del(key string) error
+	Set(ctx context.Context, key string, val []byte, ttl time.Duration) error
+	Get(ctx context.Context, key string) ([]byte, error)
+	Delete(ctx context.Context, key string) error
 }
 
 // fetchOptions holds the resolved configuration for a single [Fetch] call.
@@ -73,7 +74,7 @@ func WithSetErrorCallback(fn func(key string, err error)) FetchOption {
 // If c is nil, fn is called directly (no caching). Cache-write errors do
 // not affect the return value; they are reported via [WithSetErrorCallback]
 // if configured.
-func Fetch[T any](c Cache, key string, fn func() (T, error), options ...FetchOption) (T, error) {
+func Fetch[T any](ctx context.Context, c Cache, key string, fn func() (T, error), options ...FetchOption) (T, error) {
 	if c == nil {
 		return fn()
 	}
@@ -87,7 +88,7 @@ func Fetch[T any](c Cache, key string, fn func() (T, error), options ...FetchOpt
 		option(&opts)
 	}
 
-	data, err := c.Get(key)
+	data, err := c.Get(ctx, key)
 	if err == nil {
 		var v T
 		if err := opts.unmarshalFn(data, &v); err == nil {
@@ -105,7 +106,7 @@ func Fetch[T any](c Cache, key string, fn func() (T, error), options ...FetchOpt
 		if err != nil {
 			return errors.WithStack(err)
 		}
-		if err := c.Set(key, data); err != nil {
+		if err := c.Set(ctx, key, data, opts.expiration); err != nil {
 			return errors.WithStack(err)
 		}
 		return nil
