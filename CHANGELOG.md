@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/saltfishpr/pkg/compare/v0.9.0...v0.10.0) (2026-06-07)
+
+
+### Features
+
+* cache ([6974807](https://github.com/saltfishpr/pkg/commit/69748078f48acbfb7935c3dde1e21003f0d7ff8e))
+
 ## [0.9.0](https://github.com/saltfishpr/pkg/compare/v0.8.0...v0.9.0) (2026-04-30)
 
 
