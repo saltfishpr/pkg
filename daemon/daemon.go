@@ -42,6 +42,11 @@ func (d *BaseDaemon) Start() error {
 	return nil
 }
 
+// State returns the current lifecycle state of the daemon.
+func (d *BaseDaemon) State() int32 {
+	return d.state.Load()
+}
+
 // Stop transitions from Started to Stopped.
 // It returns [ErrDaemonStopFailed] if the daemon has not been started or
 // has already been stopped.
