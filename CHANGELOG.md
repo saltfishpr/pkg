@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.0](https://github.com/saltfishpr/pkg/compare/v0.10.0...v0.11.0) (2026-07-05)
+
+
+### Features
+
+* **daemon:** add State() method to expose current lifecycle state ([6a3dc1e](https://github.com/saltfishpr/pkg/commit/6a3dc1e2559b85fbe47d0bd0c4e4696a201736ff))
+* **ptr:** add To function ([e408818](https://github.com/saltfishpr/pkg/commit/e408818361949fe1f3ca0e7078369d96d8157b9d))
+
 ## [0.10.0](https://github.com/saltfishpr/pkg/compare/v0.9.0...v0.10.0) (2026-06-07)
 
 
