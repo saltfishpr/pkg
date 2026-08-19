@@ -1,141 +1,110 @@
-// Package i18n provides simple internationalization support for Go
-// applications. It ships two implementations:
-//   - [SimpleI18n]: direct key-value lookup by language tag.
-//   - [TextTemplateI18n]: template-based lookup using [text/template],
-//     supporting dynamic content via the [WithArg] option.
-//
-// Both implementations fall back to a configurable language (default English)
-// when the requested language is unavailable.
+// Package i18n provides keyed translations with optional text/template rendering.
 package i18n
 
 import (
 	"bytes"
 	"errors"
 	"fmt"
+	"sync"
 	"text/template"
 
 	"golang.org/x/text/language"
 )
 
-// ErrLanguageNotSupported is returned when neither the requested language
-// nor the fallback language is available.
-var ErrLanguageNotSupported = errors.New("language not supported")
+// ErrTranslationNotFound is returned when a key has no translation in either
+// the requested language or the configured fallback language.
+var ErrTranslationNotFound = errors.New("translation not found")
 
-// Options configures the behavior of a Get call.
-type Options struct {
-	Fallback language.Tag // language to try when the requested one is missing
-	Arg      any          // data passed to template execution (TextTemplateI18n only)
+// Dictionary stores translations by language and message key.
+type Dictionary map[language.Tag]map[string]string
+
+// Translator looks up translations from a Dictionary.
+type Translator struct {
+	dictionary Dictionary
+	fallback   language.Tag
+
+	templateMu sync.RWMutex
+	templates  map[string]*template.Template
 }
 
-// Option is a functional option for Get methods.
-type Option func(*Options)
+// Option configures a Translator.
+type Option func(*Translator)
 
-// WithFallback sets the fallback language tag.
-func WithFallback(fallback language.Tag) Option {
-	return func(o *Options) {
-		o.Fallback = fallback
+// WithFallback sets the language used when a requested translation is missing.
+func WithFallback(lang language.Tag) Option {
+	return func(t *Translator) {
+		t.fallback = lang
 	}
 }
 
-// WithArg sets the data argument passed to template execution in
-// [TextTemplateI18n.Get].
-func WithArg(arg any) Option {
-	return func(o *Options) {
-		o.Arg = arg
+// New creates a Translator. English is used as the fallback language unless
+// overridden with WithFallback.
+func New(dictionary Dictionary, options ...Option) *Translator {
+	t := &Translator{
+		dictionary: dictionary,
+		fallback:   language.English,
+		templates:  make(map[string]*template.Template),
 	}
-}
-
-// DefaultOptions is the baseline configuration copied by every Get call.
-var DefaultOptions = &Options{
-	Fallback: language.English,
-}
-
-// I18n is the common interface for retrieving localized strings.
-type I18n interface {
-	Get(lang language.Tag, options ...Option) (string, error)
-}
-
-// SimpleI18n maps language tags directly to static strings.
-type SimpleI18n struct {
-	data map[language.Tag]string
-}
-
-// NewSimpleI18n creates a [SimpleI18n] from a pre-populated language→string map.
-func NewSimpleI18n(data map[language.Tag]string) *SimpleI18n {
-	return &SimpleI18n{
-		data: data,
-	}
-}
-
-// Get returns the string for lang, falling back to [Options.Fallback] if
-// lang is not found. It returns [ErrLanguageNotSupported] if neither exists.
-func (i *SimpleI18n) Get(lang language.Tag, options ...Option) (string, error) {
-	opts := *DefaultOptions
 	for _, option := range options {
-		option(&opts)
+		option(t)
 	}
-
-	if s, ok := i.data[lang]; ok {
-		return s, nil
-	}
-	if s, ok := i.data[opts.Fallback]; ok {
-		return s, nil
-	}
-	return "", fmt.Errorf("language %s not supported: %w", lang, ErrLanguageNotSupported)
+	return t
 }
 
-// TextTemplateI18n maps language tags to [text/template] templates, enabling
-// dynamic content interpolation.
-type TextTemplateI18n struct {
-	data map[language.Tag]*template.Template
+// T returns the plain-text translation for key in lang. It falls back to the
+// configured fallback language when the requested translation is unavailable.
+func (t *Translator) T(lang language.Tag, key string) (string, error) {
+	return t.lookup(lang, key)
 }
 
-// NewTextTemplateI18n creates an empty [TextTemplateI18n].
-// Use [TextTemplateI18n.Add] or [TextTemplateI18n.MustAdd] to register
-// language templates.
-func NewTextTemplateI18n() *TextTemplateI18n {
-	return &TextTemplateI18n{
-		data: make(map[language.Tag]*template.Template),
-	}
-}
-
-// MustAdd registers a template for lang, panicking on parse error.
-// It returns the receiver for fluent chaining during package initialization.
-func (i *TextTemplateI18n) MustAdd(lang language.Tag, tpl string) *TextTemplateI18n {
-	i.data[lang] = template.Must(template.New("").Parse(tpl))
-	return i
-}
-
-// Add registers a template for lang, returning any parse error.
-func (i *TextTemplateI18n) Add(lang language.Tag, tpl string) error {
-	t, err := template.New("").Parse(tpl)
+// F executes the text/template translation for key in lang with data. It uses
+// the same fallback behavior as T.
+func (t *Translator) F(lang language.Tag, key string, data any) (string, error) {
+	text, err := t.lookup(lang, key)
 	if err != nil {
-		return err
+		return "", err
 	}
-	i.data[lang] = t
-	return nil
+
+	tpl, err := t.template(key, text)
+	if err != nil {
+		return "", err
+	}
+
+	var output bytes.Buffer
+	if err := tpl.Execute(&output, data); err != nil {
+		return "", fmt.Errorf("execute translation template %q: %w", key, err)
+	}
+	return output.String(), nil
 }
 
-// Get executes the template for lang (or the fallback) with the argument
-// supplied via [WithArg]. It returns [ErrLanguageNotSupported] if neither
-// the requested nor fallback language is registered.
-func (i *TextTemplateI18n) Get(lang language.Tag, options ...Option) (string, error) {
-	opts := *DefaultOptions
-	for _, option := range options {
-		option(&opts)
+func (t *Translator) template(key, text string) (*template.Template, error) {
+	t.templateMu.RLock()
+	tpl := t.templates[text]
+	t.templateMu.RUnlock()
+	if tpl != nil {
+		return tpl, nil
 	}
 
-	tpl, ok := i.data[lang]
-	if !ok {
-		tpl, ok = i.data[opts.Fallback]
-		if !ok {
-			return "", fmt.Errorf("language %s not supported: %w", lang, ErrLanguageNotSupported)
-		}
+	t.templateMu.Lock()
+	defer t.templateMu.Unlock()
+	if tpl = t.templates[text]; tpl != nil {
+		return tpl, nil
 	}
 
-	var buf bytes.Buffer
-	if err := tpl.Execute(&buf, opts.Arg); err != nil {
-		return "", fmt.Errorf("execute template %s: %w", tpl.Name(), err)
+	tpl, err := template.New("").Parse(text)
+	if err != nil {
+		return nil, fmt.Errorf("parse translation template %q: %w", key, err)
 	}
-	return buf.String(), nil
+	t.templates[text] = tpl
+	return tpl, nil
+}
+
+func (t *Translator) lookup(lang language.Tag, key string) (string, error) {
+	if text, ok := t.dictionary[lang][key]; ok {
+		return text, nil
+	}
+	if text, ok := t.dictionary[t.fallback][key]; ok {
+		return text, nil
+	}
+	return "", fmt.Errorf("translation %q for language %s: %w", key, lang, ErrTranslationNotFound)
 }
