@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/saltfishpr/pkg/compare/v0.11.0...v0.12.0) (2026-08-19)
+
+
+### Features
+
+* **i18n:** add keyed translator ([e6f19ad](https://github.com/saltfishpr/pkg/commit/e6f19ad397b57f48d9dbf60b2ac12d9d1b05c567))
+
 ## [0.11.0](https://github.com/saltfishpr/pkg/compare/v0.10.0...v0.11.0) (2026-07-05)
 
 
