@@ -7,27 +7,49 @@ import (
 	"runtime/debug"
 	"sync/atomic"
 	"time"
-
-	"github.com/saltfishpr/pkg/routine"
 )
 
-// Sentinel errors used by the combinators in this package.
 var (
 	ErrPanic   = errors.New("async panic")
 	ErrTimeout = errors.New("future timeout")
 )
 
-// Async runs f in a new goroutine (using the package-level executor) and
-// returns a [Future] that resolves when f completes. Panics inside f are
-// recovered and surfaced as errors wrapping [ErrPanic].
-func Async[T any](f func() (T, error)) *Future[T] {
-	return Submit(executor, f)
+// ErrTypeMismatch is returned by Future.Cast when the resolved value cannot be
+// asserted to the requested type.
+var ErrTypeMismatch = errors.New("future type mismatch")
+
+// Result pairs a value with the error that came with it, for transports that
+// cannot carry two return values. ToChan delivers one of these.
+type Result[T any] struct {
+	Val T
+	Err error
 }
 
-// Submit is like [Async] but uses the provided [Executor].
+// AnyResult is what AnyOf reports. Index is the position of the Future the
+// result came from.
+//
+// The error of the winning Future, when there is one, travels in Err rather
+// than through the Future AnyOf returns: *Future[AnyResult[T]] already has a
+// field to carry it, so failing that Future as well would say the same thing
+// twice. AllOf is the other way round — *Future[[]T] has nowhere to put an
+// error, so it reports failure through the Future instead.
+type AnyResult[T any] struct {
+	Index int
+	Val   T
+	Err   error
+}
+
+func Async[T any](f func() (T, error)) *Future[T] {
+	return Submit(currentExecutor(), f)
+}
+
+func CtxAsync[T any](ctx context.Context, f func(ctx context.Context) (T, error)) *Future[T] {
+	return CtxSubmit(ctx, currentExecutor(), f)
+}
+
 func Submit[T any](e Executor, f func() (T, error)) *Future[T] {
-	s := &state[T]{}
-	e.Submit(func() {
+	s := newState[T]()
+	if err := e.Submit(func() {
 		var val T
 		var err error
 		defer func() {
@@ -37,45 +59,91 @@ func Submit[T any](e Executor, f func() (T, error)) *Future[T] {
 			s.set(val, err)
 		}()
 		val, err = f()
-	})
+	}); err != nil {
+		// The task was refused, so nothing else will ever resolve this future.
+		var zero T
+		s.set(zero, rejected(err))
+	}
 	return &Future[T]{state: s}
 }
 
-// Done returns an already-resolved [Future] carrying val with a nil error.
+func CtxSubmit[T any](ctx context.Context, e Executor, f func(ctx context.Context) (T, error)) *Future[T] {
+	s := newState[T]()
+	if err := e.Submit(func() {
+		var val T
+		var err error
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("%w, err=%s, stack=%s", ErrPanic, r, debug.Stack())
+			}
+			s.set(val, err)
+		}()
+		val, err = f(ctx)
+	}); err != nil {
+		// The task was refused, so nothing else will ever resolve this future.
+		var zero T
+		s.set(zero, rejected(err))
+	}
+	return &Future[T]{state: s}
+}
+
 func Done[T any](val T) *Future[T] {
 	return Done2(val, nil)
 }
 
-// Done2 returns an already-resolved [Future] carrying val and err.
 func Done2[T any](val T, err error) *Future[T] {
-	s := &state[T]{}
+	s := newState[T]()
 	s.set(val, err)
 	return &Future[T]{state: s}
 }
 
-// Then chains a callback on f: when f resolves, cb is called with its
-// result, and a new [Future] is returned carrying cb's output. This is
-// analogous to Promise.then() in JavaScript.
-func Then[T any, R any](f *Future[T], cb func(T, error) (R, error)) *Future[R] {
-	s := &state[R]{}
-	f.state.subscribe(func(val T, err error) {
-		rval, rerr := cb(val, err)
-		s.set(rval, rerr)
-	})
-	return &Future[R]{state: s}
+// AnyOf returns the first Future to succeed, or, if every one of them fails,
+// the failure of the first to do so.
+//
+// Failure does not short-circuit. The all-failed outcome only becomes available
+// once every input has failed, so one Future that never resolves keeps AnyOf
+// pending even after the others have failed. A success, by contrast, settles the
+// result immediately.
+//
+// The Future AnyOf returns never fails: both outcomes arrive inside the
+// AnyResult, so check res.Err rather than the Future's error. AnyResult
+// explains why.
+func AnyOf[T any](fs ...*Future[T]) *Future[AnyResult[T]] {
+	if len(fs) == 0 {
+		return Done(AnyResult[T]{Index: -1})
+	}
+
+	var counter int32
+	var done uint32
+	var errIndex int32 = -1
+	s := newState[AnyResult[T]]()
+	for i, f := range fs {
+		i := i
+		f.state.subscribe(func(val T, err error) {
+			if err == nil {
+				if atomic.CompareAndSwapUint32(&done, 0, 1) {
+					s.set(AnyResult[T]{Index: i, Val: val, Err: err}, nil)
+				}
+			} else {
+				atomic.CompareAndSwapInt32(&errIndex, -1, int32(i))
+				if atomic.AddInt32(&counter, 1) == int32(len(fs)) {
+					idx := atomic.LoadInt32(&errIndex)
+					fval, ferr := fs[idx].Get()
+					s.set(AnyResult[T]{Index: int(idx), Val: fval, Err: ferr}, nil)
+				}
+			}
+		})
+	}
+	return &Future[AnyResult[T]]{state: s}
 }
 
-// AllOf waits for every Future in fs to resolve and collects their values
-// into a slice. If any Future fails, the returned Future resolves
-// immediately with that error; remaining successes are discarded.
-// An empty input yields an already-resolved Future with a nil slice.
 func AllOf[T any](fs ...*Future[T]) *Future[[]T] {
 	if len(fs) == 0 {
 		return Done[[]T](nil)
 	}
 
 	var done uint32
-	s := &state[[]T]{}
+	s := newState[[]T]()
 	c := int32(len(fs))
 	results := make([]T, len(fs))
 	for i, f := range fs {
@@ -96,11 +164,68 @@ func AllOf[T any](fs ...*Future[T]) *Future[[]T] {
 	return &Future[[]T]{state: s}
 }
 
-// Timeout wraps f with a deadline. If f does not resolve within d, the
-// returned Future resolves with [ErrTimeout].
+// Single-Future transforms. These are the original package-level API and are
+// compiled on every supported Go version, including Go 1.18.
+//
+// Each one carries its own implementation rather than delegating to the method
+// form in method.go, because that file is only built when the toolchain is Go
+// 1.27 or newer. Duplicating the small bodies keeps the two variants completely
+// independent, so the Go 1.18 build has no dependency on generic methods at all.
+
+// Await blocks until f is resolved.
+func Await[T any](f *Future[T]) (T, error) {
+	return f.Get()
+}
+
+// Then chains a synchronous computation onto f.
+func Then[T any, R any](f *Future[T], cb func(T, error) (R, error)) *Future[R] {
+	s := newState[R]()
+	f.state.subscribe(func(val T, err error) {
+		rval, rerr := cb(val, err)
+		s.set(rval, rerr)
+	})
+	return &Future[R]{state: s}
+}
+
+// ThenAsync chains an asynchronous computation onto f.
+func ThenAsync[T any, R any](f *Future[T], cb func(T, error) *Future[R]) *Future[R] {
+	s := newState[R]()
+	f.state.subscribe(func(val T, err error) {
+		cb(val, err).state.subscribe(func(rval R, rerr error) {
+			s.set(rval, rerr)
+		})
+	})
+	return &Future[R]{state: s}
+}
+
+// ToAny widens f into a *Future[any].
+func ToAny[T any](f *Future[T]) *Future[any] {
+	return Then(f, func(val T, err error) (any, error) {
+		return val, err
+	})
+}
+
+// ToChan converts f into a single read-only channel of Result[T].
+func ToChan[T any](f *Future[T]) <-chan Result[T] {
+	ch := make(chan Result[T], 1)
+	f.Subscribe(func(val T, err error) {
+		ch <- Result[T]{Val: val, Err: err}
+		close(ch)
+	})
+	return ch
+}
+
+// Timeout wraps f so that it fails with ErrTimeout when it is not resolved
+// within d.
+//
+// Only the wrapper fails. There is no cancellation anywhere in this package, so
+// f keeps running and still resolves on its own schedule: a timed-out Future
+// tells the caller to stop waiting, it does not stop the work. A task that
+// should give up once its result is no longer wanted has to watch a context
+// itself (see CtxAsync), and it stays responsible for the resources it holds.
 func Timeout[T any](f *Future[T], d time.Duration) *Future[T] {
 	var done uint32
-	s := &state[T]{}
+	s := newState[T]()
 	timer := time.AfterFunc(d, func() {
 		if atomic.CompareAndSwapUint32(&done, 0, 1) {
 			var zero T
@@ -116,27 +241,8 @@ func Timeout[T any](f *Future[T], d time.Duration) *Future[T] {
 	return &Future[T]{state: s}
 }
 
-// WithContext races f against ctx. The returned Future resolves with
-// whichever completes first: the original Future's result, or the
-// context's error.
-func WithContext[T any](ctx context.Context, f *Future[T]) *Future[T] {
-	var done uint32
-	s := &state[T]{}
-	routine.GoSafe(func() {
-		select {
-		case <-ctx.Done():
-			if atomic.CompareAndSwapUint32(&done, 0, 1) {
-				var zero T
-				s.set(zero, ctx.Err())
-			}
-		case <-s.done:
-			return
-		}
-	})
-	f.state.subscribe(func(val T, err error) {
-		if atomic.CompareAndSwapUint32(&done, 0, 1) {
-			s.set(val, err)
-		}
-	})
-	return &Future[T]{state: s}
+// Until wraps f so that it fails with ErrTimeout when it is not resolved before
+// t.
+func Until[T any](f *Future[T], t time.Time) *Future[T] {
+	return Timeout(f, time.Until(t))
 }
