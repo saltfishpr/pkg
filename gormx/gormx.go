@@ -6,8 +6,8 @@ package gormx
 
 import (
 	"context"
-	"errors"
 
+	"github.com/pkg/errors"
 	"gorm.io/gorm"
 )
 
@@ -24,84 +24,81 @@ func (r *BaseRepo) IsNotFoundError(err error) bool {
 	return errors.Is(err, gorm.ErrRecordNotFound)
 }
 
-// ctxKey is a private type used as context-value keys to avoid collisions.
-type ctxKey string
+// TransactionKey identifies a transaction scope in a context. Repositories
+// with the same key share transactions.
+type TransactionKey string
 
-// CtxKeyMySQLTransaction is the default context key for storing a MySQL
-// transaction. Pass a custom key to [NewOnceTransactionRepo] if you need
-// multiple independent transaction scopes.
-const CtxKeyMySQLTransaction ctxKey = "mysql_transaction"
+// DefaultTransactionKey is the conventional key for the default scope.
+const DefaultTransactionKey TransactionKey = "default"
 
-// OnceTransactionRepo implements context-based transaction propagation.
-//
-// When [OnceTransactionRepo.Transaction] is called, it checks whether the
-// context already carries a transaction (stored under key). If so, fn runs
-// inside the existing transaction; otherwise a new transaction is started.
-// This lets nested service calls share a single database transaction without
-// explicit plumbing.
+// OnceTransactionRepo propagates a transaction through context. Nested calls
+// to [OnceTransactionRepo.Transaction] reuse the transaction already stored in
+// ctx under the repository's key. Repositories with the same key share
+// transactions; use different keys for independent scopes or databases.
 type OnceTransactionRepo struct {
 	db  *gorm.DB
-	key ctxKey
+	key TransactionKey
 }
 
-// NewOnceTransactionRepo creates a new [OnceTransactionRepo].
-// db is the underlying database connection and key is the context key under
-// which the active transaction is stored.
-func NewOnceTransactionRepo(db *gorm.DB, key ctxKey) *OnceTransactionRepo {
+// NewOnceTransactionRepo creates a repository that stores its transaction
+// under key. db is the underlying connection.
+func NewOnceTransactionRepo(db *gorm.DB, key TransactionKey) *OnceTransactionRepo {
 	return &OnceTransactionRepo{
 		db:  db,
 		key: key,
 	}
 }
 
-// DB returns a [gorm.DB] bound to ctx. If ctx carries an active transaction
-// it is reused; otherwise a plain session is returned.
+// DB returns a session bound to ctx. If ctx carries a transaction, the session
+// runs inside it.
 func (r *OnceTransactionRepo) DB(ctx context.Context) *gorm.DB {
 	if db, ok := ctx.Value(r.key).(*gorm.DB); ok {
-		return db
+		return db.WithContext(ctx)
 	}
 	return r.db.WithContext(ctx)
 }
 
-// Transaction executes fn inside a database transaction. If a transaction
-// is already present in ctx it is reused (nested call); otherwise a new one
-// is created. The transaction commits when fn returns nil, or rolls back on
-// error.
+// Transaction runs fn in a transaction. If ctx already carries one, fn runs in
+// that transaction; otherwise a new transaction is started. The transaction
+// commits when fn returns nil and rolls back otherwise. Use
+// [OnceTransactionRepo.DB] inside fn to execute queries in the transaction.
+// Transaction panics if fn is nil.
 func (r *OnceTransactionRepo) Transaction(ctx context.Context, fn func(ctx context.Context) error) error {
 	if fn == nil {
-		panic("fn cannot be nil")
+		panic("gormx: nil transaction function")
 	}
 
-	if _, ok := ctx.Value(r.key).(*gorm.DB); ok {
-		return fn(ctx)
-	}
-
-	return r.db.Transaction(func(db *gorm.DB) error {
-		tx := db.WithContext(ctx)
-		ctx := context.WithValue(ctx, r.key, tx)
-		return fn(ctx)
+	_, err := TransactionResult(r, ctx, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, fn(ctx)
 	})
+	return err
 }
 
-// TransactionResult is like [OnceTransactionRepo.Transaction] but also
-// returns a result value from fn.
-func (r *OnceTransactionRepo) TransactionResult(ctx context.Context, fn func(ctx context.Context) (any, error)) (any, error) {
+// TransactionResult is like [OnceTransactionRepo.Transaction] but returns a
+// typed result. On error it returns the zero value of T. It panics if fn is
+// nil.
+func TransactionResult[T any](
+	r *OnceTransactionRepo,
+	ctx context.Context,
+	fn func(ctx context.Context) (T, error),
+) (T, error) {
 	if fn == nil {
-		panic("fn cannot be nil")
+		panic("gormx: nil transaction function")
 	}
 
 	if _, ok := ctx.Value(r.key).(*gorm.DB); ok {
 		return fn(ctx)
 	}
 
-	var res any
-	err := r.db.Transaction(func(db *gorm.DB) error {
-		tx := db.WithContext(ctx)
-		ctx := context.WithValue(ctx, r.key, tx)
-
+	var res T
+	err := r.db.WithContext(ctx).Transaction(func(db *gorm.DB) error {
 		var err error
-		res, err = fn(ctx)
+		res, err = fn(context.WithValue(ctx, r.key, db))
 		return err
 	})
-	return res, err
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	return res, nil
 }
