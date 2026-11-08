@@ -12,6 +12,7 @@ A collection of reusable Go utility packages.
 | [crypto](./crypto)           | AES-GCM encryption/decryption utilities with secure nonce handling                              |
 | [future](./future)           | Promise-Future async primitives with executors, combinators, and Go 1.27 generic methods        |
 | [gormx](./gormx)             | GORM extensions including transactions and encrypted string support                             |
+| [i18n](./i18n)               | Keyed translations with language negotiation and text/template rendering                        |
 | [retry](./retry)             | General-purpose retry mechanism with configurable strategies and backoff                        |
 | [routine](./routine)         | Goroutine utilities for safe execution with panic recovery and timeout support                  |
 

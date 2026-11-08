@@ -37,6 +37,34 @@ func ExampleNew() {
 	// Welcome, Ada!
 }
 
+func ExampleTranslator_Match() {
+	translator := i18n.New(i18n.Dictionary{
+		language.English: {
+			"greeting": "Hello",
+		},
+		language.SimplifiedChinese: {
+			"greeting": "你好",
+		},
+	})
+
+	tags, _, err := language.ParseAcceptLanguage("zh-CN,zh;q=0.9,en;q=0.8")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	lang := translator.Match(tags...)
+	greeting, err := translator.T(lang, "greeting")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(lang)
+	fmt.Println(greeting)
+
+	// Output:
+	// zh-Hans
+	// 你好
+}
+
 func ExampleWithFallback() {
 	translator := i18n.New(i18n.Dictionary{
 		language.SimplifiedChinese: {

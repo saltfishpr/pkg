@@ -12,6 +12,7 @@
 | [crypto](./crypto)           | AES-GCM 加密/解密工具，具有安全的 nonce 处理机制                     |
 | [future](./future)           | Promise-Future 异步编程原语，支持执行器、组合操作和 Go 1.27 泛型方法 |
 | [gormx](./gormx)             | GORM 扩展，包含事务和加密字符串支持                                  |
+| [i18n](./i18n)               | 键值翻译，支持语言协商和 text/template 渲染                          |
 | [retry](./retry)             | 通用重试机制，支持可配置的策略和退避策略                             |
 | [routine](./routine)         | Goroutine 工具，支持安全执行、panic 恢复和超时控制                   |
 
