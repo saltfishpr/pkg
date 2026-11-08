@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 
 	"github.com/pkg/errors"
 )
@@ -23,20 +24,36 @@ import (
 const nonceSize = 12
 
 // Cryptor performs AES-256-GCM encryption and decryption using a fixed key.
+// A Cryptor is safe for concurrent use and must not be copied after first use.
 type Cryptor struct {
-	key []byte
+	key  []byte
+	once sync.Once
+	aead cipher.AEAD
+	err  error
 }
 
 // New creates a [Cryptor] with the given AES key.
 // The key must be 16, 24, or 32 bytes for AES-128, AES-192, or AES-256.
 func New(key []byte) *Cryptor {
-	return &Cryptor{key: key}
+	return &Cryptor{key: append([]byte(nil), key...)}
+}
+
+func (c *Cryptor) init() (cipher.AEAD, error) {
+	c.once.Do(func() {
+		block, err := aes.NewCipher(c.key)
+		if err != nil {
+			c.err = err
+			return
+		}
+		c.aead, c.err = cipher.NewGCM(block)
+	})
+	return c.aead, c.err
 }
 
 // Encrypt encrypts plaintext with AES-GCM and returns the result as
 // "ENC(<base64(nonce + ciphertext)>)".
 func (c *Cryptor) Encrypt(plaintext []byte) (string, error) {
-	block, err := aes.NewCipher(c.key)
+	aead, err := c.init()
 	if err != nil {
 		return "", errors.WithStack(err)
 	}
@@ -46,12 +63,7 @@ func (c *Cryptor) Encrypt(plaintext []byte) (string, error) {
 		return "", errors.WithStack(err)
 	}
 
-	aesGCM, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", errors.WithStack(err)
-	}
-
-	ciphertext := aesGCM.Seal(nil, nonce, plaintext, nil)
+	ciphertext := aead.Seal(nil, nonce, plaintext, nil)
 
 	result := make([]byte, len(nonce)+len(ciphertext))
 	copy(result[:len(nonce)], nonce)
@@ -80,17 +92,12 @@ func (c *Cryptor) Decrypt(encoded string) ([]byte, error) {
 
 	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
 
-	block, err := aes.NewCipher(c.key)
+	aead, err := c.init()
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
 
-	aesGCM, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-
-	plaintext, err := aesGCM.Open(nil, nonce, ciphertext, nil)
+	plaintext, err := aead.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -98,13 +105,11 @@ func (c *Cryptor) Decrypt(encoded string) ([]byte, error) {
 	return plaintext, nil
 }
 
-// wrap envelopes a base64 string in the "ENC(...)" marker.
 func (c *Cryptor) wrap(s string) string {
 	return fmt.Sprintf("ENC(%s)", s)
 }
 
-// unwrap strips the "ENC(...)" envelope. It returns the inner string and true
-// on success, or the original string and false if the envelope is absent.
+// unwrap returns the payload and whether the "ENC(...)" envelope was present.
 func (c *Cryptor) unwrap(s string) (string, bool) {
 	if strings.HasPrefix(s, "ENC(") && strings.HasSuffix(s, ")") {
 		s = s[4 : len(s)-1]
