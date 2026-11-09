@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.12.0](https://github.com/saltfishpr/pkg/compare/v0.11.0...v0.12.0) (2026-11-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* **gormx:** CtxKeyMySQLTransaction is now DefaultTransactionKey, TransactionResult is a generic function instead of a method, and GetCryptoKey is now CryptorFromContext.
+* **future:** Future and Executor APIs changed; WithContext and the dag package were removed; Promise must now be created with NewPromise.
+
+### Features
+
+* **future:** overhaul package and add Go 1.27 generic methods ([3b2cbd0](https://github.com/saltfishpr/pkg/commit/3b2cbd0fc9c1bc40c94090e42678f0da39352e8b))
+* **i18n:** add keyed translator ([e6f19ad](https://github.com/saltfishpr/pkg/commit/e6f19ad397b57f48d9dbf60b2ac12d9d1b05c567))
+* **i18n:** negotiate languages with a matcher ([61077a2](https://github.com/saltfishpr/pkg/commit/61077a20396b7b3bdb87ca716769fa90899d48d0))
+
+
+### Bug Fixes
+
+* **gormx:** bind transactions to the caller context ([081b77b](https://github.com/saltfishpr/pkg/commit/081b77be7792afffd949c83cd9fa75cbdce6f188))
+
+
+### Performance Improvements
+
+* **crypto:** cache AES-GCM cipher across calls ([ab1b0a1](https://github.com/saltfishpr/pkg/commit/ab1b0a194c6043916182578428735f831ae7feb6))
+
 ## [0.11.0](https://github.com/saltfishpr/pkg/compare/v0.10.0...v0.11.0) (2026-07-05)
 
 
