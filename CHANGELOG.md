@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/saltfishpr/pkg/compare/v0.12.0...v0.13.0) (2026-11-18)
+
+
+### Features
+
+* **crypto:** add AES-256-GCM keyring with AAD ([9510b45](https://github.com/saltfishpr/pkg/commit/9510b452a3ae16568a26a50a09ae7d1d8548f57c))
+
 ## [0.12.0](https://github.com/saltfishpr/pkg/compare/v0.11.0...v0.12.0) (2026-11-08)
 
 
