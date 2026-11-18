@@ -1,10 +1,11 @@
-// Package crypto provides AES-256-GCM authenticated encryption with a
-// simple Encrypt/Decrypt API.
+// Package crypto provides AES-GCM authenticated encryption.
 //
-// Ciphertext is formatted as "ENC(<base64>)" where the base64 payload
-// contains a 12-byte random nonce followed by the GCM ciphertext and tag.
+// [Cryptor] uses the legacy "ENC(<base64>)" format.
 // [Cryptor.Decrypt] transparently handles both wrapped ("ENC(...)") and
 // plain-text inputs, returning plain text unchanged.
+//
+// [Keyring] uses a versioned AES-256-GCM format that supports additional
+// authenticated data (AAD) and key rotation. It does not accept legacy inputs.
 package crypto
 
 import (
